@@ -16,6 +16,18 @@ import UpgradeModal from './ui/UpgradeModal';
 import PerfectClearAnimation from './ui/PerfectClearAnimation';
 import LevelCompleteScreen from './ui/LevelCompleteScreen';
 import GameOverScreen from './ui/GameOverScreen';
+import AbilityBar from './ui/AbilityBar';
+
+const abilities = [
+    { name: 'shield', label: 'Shield', cooldown: 5000 },
+    { name: 'speed', label: 'Speed Boost', cooldown: 3000 },
+    { name: 'camo', label: 'Camo', cooldown: 6000 },
+    { name: 'phase', label: 'Phase', cooldown: 8000 },
+    { name: 'fire', label: 'Fire Trail', cooldown: 10000 },
+    { name: 'mirror', label: 'Mirror', cooldown: 12000 },
+    { name: 'rubber', label: 'Rubber', cooldown: 8000 },
+    { name: 'split', label: 'Splitter', cooldown: 10000 }
+  ];
 
 const BloonsRevenge = () => {
   const canvasRef = useRef(null);
@@ -23,18 +35,8 @@ const BloonsRevenge = () => {
   const activeLevel = useRef(null);
   const bloons = useRef([]);
   
-  // Game state
-  const [selectedAbility, setSelectedAbility] = useState('shield');
-  const [abilityCooldowns, setAbilityCooldowns] = useState({
-    shield: 0,
-    speed: 0,
-    camo: 0,
-    split: 0,
-    rubber: 0,
-    phase: 0,
-    fire: 0,
-    mirror: 0
-  });
+  const abilityBarRef = useRef(null);
+  const selectedAbilityRef = useRef('shield');
   
   // Initialize game state with GameStateManager
   const [gameState, setGameState] = useState(() => ({
@@ -163,18 +165,6 @@ const BloonsRevenge = () => {
       }
     });
     
-    // Reset cooldowns
-    setAbilityCooldowns({
-      shield: 0,
-      speed: 0,
-      camo: 0,
-      split: 0,
-      rubber: 0,
-      phase: 0,
-      fire: 0,
-      mirror: 0
-    });
-    
     // Reset level
     if (sceneRef.current) {
       // Clean up previous level
@@ -191,18 +181,8 @@ const BloonsRevenge = () => {
     }
   }, []);
 
-  // Update game state with modifiers
-  useEffect(() => {
-    const gameLoop = setInterval(() => {
-      setGameState(prev => {
-        if (prev.gameStatus === 'playing') {
-          return GameStateManager.updateGameState(prev);
-        }
-        return prev;
-      });
-    }, 1000);
-
-    return () => clearInterval(gameLoop);
+  const handleAbilitySelected = useCallback((abilityName) => {
+    selectedAbilityRef.current = abilityName;
   }, []);
 
   // Babylon.js game setup
@@ -269,68 +249,63 @@ const BloonsRevenge = () => {
       bloon.mesh.actionManager.registerAction(
         new BABYLON.ExecuteCodeAction(
           BABYLON.ActionManager.OnPickTrigger,
-          () => {
-            if (!bloon.abilities[selectedAbility]) {
-              // Get all active modifiers
-              const allModifiers = GameStateManager.getAllModifiers(gameState);
-              
-              // Apply ability with modifiers
-              bloon.activateAbility(selectedAbility, allModifiers);
-              
-              // Set cooldown for the ability
-              setAbilityCooldowns(prev => {
-                let cooldown = abilities.find(a => a.name === selectedAbility)?.cooldown || 5000;
+          (evt) => {
+
+            const wasEnabled = camera.inputs.attached.pointers.detachControl();
+            evt.skipNextObservers = true;
+
+            setTimeout(() => {
+                if (wasEnabled) {
+                  camera.inputs.attachInput(camera.inputs.attached.pointers);
+                }
+              }, 100);
+
+            const currentAbility = selectedAbilityRef.current;
+            if (!bloon.abilities[currentAbility]) {
+                // Apply the ability
+                bloon.activateAbility(currentAbility, GameStateManager.getAllModifiers(gameState));
                 
-                // Apply cooldown modifiers from upgrades
-                cooldown = UpgradeManager.getModifiedCooldown(
-                  selectedAbility, 
-                  cooldown, 
-                  allModifiers
-                );
-                
-                return {
-                  ...prev,
-                  [selectedAbility]: cooldown
-                };
-              });
+                // Trigger cooldown via the ref
+                if (abilityBarRef.current) {
+                    abilityBarRef.current.triggerCooldown(currentAbility);
+                }
               
               // Check for ability fusion effect from upgrades
               if (UpgradeManager.shouldTriggerAbilityFusion(allModifiers)) {
-                // Find other abilities not on cooldown
-                const availableAbilities = abilities
-                  .filter(a => a.name !== selectedAbility && !abilityCooldowns[a.name])
-                  .map(a => a.name);
-                
-                if (availableAbilities.length > 0) {
-                  // Select random additional ability
-                  const randomAbility = availableAbilities[
-                    Math.floor(Math.random() * availableAbilities.length)
-                  ];
+                // Request available abilities from the AbilityBar component
+                if (abilityBarRef.current) {
+                  const availableAbilities = abilityBarRef.current.getAvailableAbilities(currentAbility);
                   
-                  // Activate the second ability
-                  bloon.activateAbility(randomAbility, allModifiers);
-                  
-                  // Add notification
-                  setGameState(prev => ({
-                    ...prev,
-                    statusEffects: {
-                      ...prev.statusEffects,
-                      notifications: [
-                        ...(prev.statusEffects.notifications || []),
-                        {
-                          id: Date.now(),
-                          message: `Fusion Activated: ${randomAbility}!`,
-                          timestamp: Date.now()
-                        }
-                      ]
-                    }
-                  }));
+                  if (availableAbilities.length > 0) {
+                    // Select random additional ability
+                    const randomAbility = availableAbilities[
+                      Math.floor(Math.random() * availableAbilities.length)
+                    ];
+                    
+                    // Activate the second ability
+                    bloon.activateAbility(randomAbility, allModifiers);
+                    
+                    // Add notification
+                    setGameState(prev => ({
+                      ...prev,
+                      statusEffects: {
+                        ...prev.statusEffects,
+                        notifications: [
+                          ...(prev.statusEffects.notifications || []),
+                          {
+                            id: Date.now(),
+                            message: `Fusion Activated: ${randomAbility}!`,
+                            timestamp: Date.now()
+                          }
+                        ]
+                      }
+                    }));
                 }
               }
             }
           }
-        )
-      );
+          }
+      ));
       
       // Add to bloons array
       bloons.current.push(bloon);
@@ -498,16 +473,20 @@ const BloonsRevenge = () => {
         activeLevel.current.themeModifiers.update(scene, engine.getDeltaTime(), currentTime);
       }
       
-      // Update ability cooldowns
       if (gameState.gameStatus === 'playing') {
-        Object.keys(abilityCooldowns).forEach(ability => {
-          if (abilityCooldowns[ability] > 0) {
-            setAbilityCooldowns(prev => ({
-              ...prev,
-              [ability]: Math.max(0, prev[ability] - engine.getDeltaTime())
-            }));
-          }
-        });
+        // Clean up old notifications
+        if (gameState.statusEffects?.notifications?.length > 0) {
+          const expirationTime = 5000; // 5 seconds for notification lifetime
+          setGameState(prev => ({
+            ...prev,
+            statusEffects: {
+              ...prev.statusEffects,
+              notifications: prev.statusEffects.notifications.filter(
+                notification => currentTime - notification.timestamp < expirationTime
+              )
+            }
+          }));
+        }
       }
     });
     
@@ -536,23 +515,8 @@ const BloonsRevenge = () => {
     };
   }, [
     gameState.currentLevel,
-    gameState.totalBloons,
-    gameState.gameStatus,
-    gameState.upgradeState,
-    selectedAbility
+    gameState.gameStatus
   ]);
-
-  // Define the abilities with their properties
-  const abilities = [
-    { name: 'shield', label: 'Shield', cooldown: 5000 },
-    { name: 'speed', label: 'Speed Boost', cooldown: 3000 },
-    { name: 'camo', label: 'Camo', cooldown: 6000 },
-    { name: 'phase', label: 'Phase', cooldown: 8000 },
-    { name: 'fire', label: 'Fire Trail', cooldown: 10000 },
-    { name: 'mirror', label: 'Mirror', cooldown: 12000 },
-    { name: 'rubber', label: 'Rubber', cooldown: 8000 },
-    { name: 'split', label: 'Splitter', cooldown: 10000 }
-  ];
 
   return (
     <div className="w-full h-screen relative">
@@ -628,61 +592,13 @@ const BloonsRevenge = () => {
         />
       )}
 
-      {/* Ability Bar */}
-      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 flex-wrap justify-center max-w-3xl">
-        {abilities.map(ability => {
-          const cooldownPercentage = (abilityCooldowns[ability.name] / ability.cooldown) * 100;
-          
-          // Apply cooldown modifiers from upgrades
-          let modifiedCooldown = ability.cooldown;
-          if (gameState.upgradeState) {
-            modifiedCooldown = UpgradeManager.getModifiedCooldown(
-              ability.name,
-              ability.cooldown,
-              GameStateManager.getAllModifiers(gameState)
-            );
-          }
-          
-          return (
-            <div key={ability.name} className="relative">
-              <button
-                className={`w-16 h-16 rounded-lg relative overflow-hidden ${
-                  selectedAbility === ability.name 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-gray-200 text-gray-700'
-                } ${cooldownPercentage > 0 ? 'cursor-not-allowed opacity-50' : ''}`}
-                onClick={() => {
-                  if (cooldownPercentage === 0) {
-                    setSelectedAbility(ability.name);
-                  }
-                }}
-                disabled={gameState.gameStatus !== 'playing' || cooldownPercentage > 0}
-              >
-                {/* Cooldown Overlay */}
-                <div
-                  className="absolute bottom-0 left-0 w-full bg-black bg-opacity-50"
-                  style={{
-                    height: `${cooldownPercentage}%`,
-                    transition: 'height 0.1s linear'
-                  }}
-                />
-                
-                {/* Ability Label */}
-                <div className="absolute inset-0 flex items-center justify-center z-10">
-                  <span className="text-xs font-bold">{ability.label}</span>
-                </div>
-              </button>
-
-              {/* Cooldown Timer */}
-              {cooldownPercentage > 0 && (
-                <div className="absolute bottom-0 left-0 w-full text-center text-white text-xs bg-black bg-opacity-50 rounded-b-lg">
-                  {Math.ceil(abilityCooldowns[ability.name] / 1000)}s
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+        <AbilityBar
+        ref={abilityBarRef}
+        abilities={abilities}
+        isPlaying={gameState.gameStatus === 'playing'}
+        modifiers={GameStateManager.getAllModifiers(gameState)}
+        onSelectAbility={handleAbilitySelected}
+        />
     </div>
   );
 };

@@ -102,7 +102,7 @@ export function generateRandomPath(options = {}) {
  */
 export function createPathMesh(scene, pathPoints, options = {}) {
   const {
-    radius = 0.5,
+    radius = 0.1,
     tessellation = 20,
     color = new BABYLON.Color3(0.4, 0.4, 0.4)
   } = options;
@@ -119,6 +119,7 @@ export function createPathMesh(scene, pathPoints, options = {}) {
   
   const pathMaterial = new BABYLON.StandardMaterial("trackMat", scene);
   pathMaterial.diffuseColor = color;
+  pathMaterial.alpha = 0.1;
   path.material = pathMaterial;
   
   return path;
@@ -310,7 +311,7 @@ function applyDesertTheme(scene, groundMesh, groundColor, baseModifiers) {
 function applyFogTheme(scene, groundMesh, groundColor, baseModifiers) {
   // Set fog settings
   scene.fogMode = BABYLON.Scene.FOGMODE_EXP;
-  scene.fogDensity = 0.08;
+  scene.fogDensity = 0.02;
   scene.fogColor = new BABYLON.Color3(0.9, 0.9, 0.9);
   scene.clearColor = new BABYLON.Color3(0.8, 0.8, 0.8);
   
@@ -331,7 +332,7 @@ function applyFogTheme(scene, groundMesh, groundColor, baseModifiers) {
   fogSystem.maxSize = 3;
   fogSystem.minLifeTime = 4;
   fogSystem.maxLifeTime = 8;
-  fogSystem.emitRate = 100;
+  fogSystem.emitRate = 10;
   fogSystem.start();
   
   // Return theme modifiers
