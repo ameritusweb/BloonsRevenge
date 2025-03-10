@@ -1,8 +1,9 @@
 import * as BABYLON from '@babylonjs/core';
 
 class Tower {
-  constructor(scene, position, type = 'basic') {
+  constructor(scene, position, eventEmitter, type = 'basic') {
     this.scene = scene;
+    this.eventEmitter = eventEmitter;
     this.type = type;
     this.disabled = false;
     this.disabledUntil = 0;
@@ -290,6 +291,12 @@ class Tower {
   }
   
   shootBasic(bloon) {
+    this.eventEmitter.emit('towerShot', {
+      tower: this,
+      target: bloon,
+      type: 'basic'
+    });
+
     const projectile = BABYLON.MeshBuilder.CreateSphere(
       "projectile",
       { diameter: 0.2 },
@@ -330,8 +337,18 @@ class Tower {
       
       if (hitResult === true) {
         // Normal hit
+        this.eventEmitter.emit('towerHit', {
+          tower: this,
+          target: bloon,
+          type: 'destroy'
+        });
       } else if (hitResult === false) {
         // Hit blocked
+        this.eventEmitter.emit('towerHit', {
+          tower: this,
+          target: bloon,
+          type: 'blocked'
+        });
       } else if (hitResult && hitResult.action === 'bounce') {
         // Handle rubber bounce back
         this.handleRubberBounce(bloon, hitResult.target);
@@ -561,6 +578,12 @@ class Tower {
   }
   
   handleRubberBounce(bloon, targetTower) {
+    this.eventEmitter.emit('towerBouncedHit', {
+      tower: this,
+      source: bloon,
+      position: this.turret.position.clone()
+    });
+
     const bounceProjectile = BABYLON.MeshBuilder.CreateSphere(
       "bounceProjectile",
       { diameter: 0.2 },
@@ -600,6 +623,13 @@ class Tower {
       
       // Handle tower jamming upgrade if present
       if (bloon.hasUpgrade?.towerJamming) {
+        this.eventEmitter.emit('towerJammed', {
+          tower: this,
+          source: bloon,
+          range: bloon.upgradeEffects?.towerJamming?.areaOfEffect || 3,
+          duration: bloon.upgradeEffects?.towerJamming?.disableDuration || 5
+        });
+        
         const jammingRange = bloon.upgradeEffects?.towerJamming?.areaOfEffect || 3;
         const jammingDuration = bloon.upgradeEffects?.towerJamming?.disableDuration || 5;
         
@@ -668,6 +698,11 @@ class Tower {
   }
   
   disableTower(duration) {
+    this.eventEmitter.emit('towerDisabled', {
+      tower: this,
+      duration: duration
+    });
+
     this.disabled = true;
     this.disabledUntil = Date.now() + duration;
     

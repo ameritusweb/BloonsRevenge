@@ -2,8 +2,9 @@ import * as BABYLON from '@babylonjs/core';
 import UpgradeManager from '../managers/UpgradeManager';
 
 class Bloon {
-  constructor(scene, startPosition, pathPoints, modifiers = {}) {
+  constructor(scene, startPosition, eventEmitter, pathPoints, modifiers = {}) {
     this.scene = scene;
+    this.eventEmitter = eventEmitter;
     this.pathPoints = pathPoints;
     
     // Create mesh
@@ -261,6 +262,12 @@ class Bloon {
   }
   
   dispose() {
+    this.eventEmitter.emit('bloonDisposed', { 
+      bloon: this,
+      position: this.mesh.position?.clone(),
+      wasClone: this.isClone
+    });
+
     // Clean up any active effects
     this.activeEffects.forEach(effect => {
       effect.dispose();
@@ -274,6 +281,195 @@ class Bloon {
     // Dispose mesh
     this.mesh.dispose();
   }
+
+  escape() {
+    if (!this.hasEscaped && !this.isDead) {
+      this.hasEscaped = true;
+      this.eventEmitter.emit('bloonEscaped', { 
+        bloon: this,
+        position: this.mesh.position.clone(),
+        pathIndex: this.pathIndex,
+        wasClone: this.isClone
+      });
+      this.dispose();
+    }
+  }
+  
+  createMirrorClones() {
+    const angles = [Math.PI/4, -Math.PI/4];
+    const splitEffects = [];
+    
+    angles.forEach(angle => {
+      // Create mirror split particle effect
+      const splitEffect = new BABYLON.ParticleSystem("mirrorSplit", 50, this.scene);
+      splitEffect.particleTexture = new BABYLON.Texture("data:image/png;base64,..."); // Placeholder
+      splitEffect.emitter = this.mesh.position.clone();
+      
+      // Set up particle properties
+      splitEffect.minEmitBox = new BABYLON.Vector3(-0.2, -0.2, -0.2);
+      splitEffect.maxEmitBox = new BABYLON.Vector3(0.2, 0.2, 0.2);
+      splitEffect.color1 = new BABYLON.Color4(0.8, 0.8, 1, 1);
+      splitEffect.color2 = new BABYLON.Color4(0.6, 0.6, 0.8, 1);
+      splitEffect.minSize = 0.1;
+      splitEffect.maxSize = 0.2;
+      splitEffect.minLifeTime = 0.3;
+      splitEffect.maxLifeTime = 0.5;
+      splitEffect.emitRate = 50;
+      splitEffect.start();
+      
+      splitEffects.push(splitEffect);
+    });
+  
+    // Clean up effects after a short delay
+    setTimeout(() => {
+      splitEffects.forEach(effect => effect.dispose());
+    }, 500);
+  
+    // Notify that mirror clones should be created
+    this.eventEmitter.emit('bloonMirrored', {
+      bloon: this,
+      position: this.mesh.position.clone(),
+      angles: angles
+    });
+  }
+  
+  createDeathExplosion() {
+    // Create explosion mesh
+    const explosion = BABYLON.MeshBuilder.CreateSphere(
+      "explosion",
+      { diameter: 1 },
+      this.scene
+    );
+    explosion.position = this.mesh.position.clone();
+    
+    // Create explosion material
+    const explosionMaterial = new BABYLON.StandardMaterial("explosionMat", this.scene);
+    explosionMaterial.diffuseColor = new BABYLON.Color3(1, 0.5, 0);
+    explosionMaterial.emissiveColor = new BABYLON.Color3(1, 0.3, 0);
+    explosionMaterial.alpha = 0.8;
+    explosion.material = explosionMaterial;
+  
+    // Create particle system for explosion
+    const particles = new BABYLON.ParticleSystem("explosionParticles", 200, this.scene);
+    particles.particleTexture = new BABYLON.Texture("data:image/png;base64,..."); // Placeholder
+    particles.emitter = this.mesh.position;
+    particles.minEmitBox = new BABYLON.Vector3(-0.5, -0.5, -0.5);
+    particles.maxEmitBox = new BABYLON.Vector3(0.5, 0.5, 0.5);
+    particles.color1 = new BABYLON.Color4(1, 0.5, 0, 1);
+    particles.color2 = new BABYLON.Color4(1, 0.2, 0, 1);
+    particles.minSize = 0.3;
+    particles.maxSize = 1;
+    particles.minLifeTime = 0.2;
+    particles.maxLifeTime = 0.4;
+    particles.emitRate = 500;
+    particles.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+    particles.gravity = new BABYLON.Vector3(0, 8, 0);
+    particles.direction1 = new BABYLON.Vector3(-1, 8, 1);
+    particles.direction2 = new BABYLON.Vector3(1, 8, -1);
+    particles.start();
+  
+    // Animate explosion
+    const explosionAnimation = new BABYLON.Animation(
+      "explosionAnim",
+      "scaling",
+      60,
+      BABYLON.Animation.ANIMATIONTYPE_VECTOR3,
+      BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+    );
+  
+    const keyFrames = [];
+    keyFrames.push({
+      frame: 0,
+      value: new BABYLON.Vector3(0.1, 0.1, 0.1)
+    });
+    keyFrames.push({
+      frame: 30,
+      value: new BABYLON.Vector3(3, 3, 3)
+    });
+  
+    explosionAnimation.setKeys(keyFrames);
+    explosion.animations = [explosionAnimation];
+  
+    // Play animation and clean up
+    this.scene.beginAnimation(explosion, 0, 30, false, 1, () => {
+      setTimeout(() => {
+        particles.dispose();
+        explosion.dispose();
+      }, 400);
+    });
+  
+    // Emit event for game logic
+    this.eventEmitter.emit('bloonExploded', {
+      bloon: this,
+      position: this.mesh.position.clone(),
+      radius: 3 // Explosion radius
+    });
+  }
+  
+  createShieldBreakEffect() {
+    // Create shield break particles
+    const shieldBreak = new BABYLON.ParticleSystem("shieldBreak", 50, this.scene);
+    shieldBreak.particleTexture = new BABYLON.Texture("data:image/png;base64,..."); // Placeholder
+    shieldBreak.emitter = this.mesh.position.clone();
+    
+    // Set up particle properties
+    shieldBreak.minEmitBox = new BABYLON.Vector3(-0.2, -0.2, -0.2);
+    shieldBreak.maxEmitBox = new BABYLON.Vector3(0.2, 0.2, 0.2);
+    shieldBreak.color1 = new BABYLON.Color4(0, 1, 1, 1);
+    shieldBreak.color2 = new BABYLON.Color4(0, 0.5, 1, 1);
+    shieldBreak.minSize = 0.1;
+    shieldBreak.maxSize = 0.3;
+    shieldBreak.minLifeTime = 0.2;
+    shieldBreak.maxLifeTime = 0.4;
+    shieldBreak.emitRate = 100;
+    shieldBreak.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+    
+    // Create shield break flash
+    const flash = new BABYLON.HighlightLayer("shieldFlash", this.scene);
+    flash.addMesh(this.mesh, new BABYLON.Color3(0, 1, 1));
+    
+    // Start effects
+    shieldBreak.start();
+    
+    // Clean up after effects finish
+    setTimeout(() => {
+      shieldBreak.dispose();
+      flash.dispose();
+    }, 400);
+  }
+  
+  createPopEffect() {
+    // Create pop particles
+    const pop = new BABYLON.ParticleSystem("pop", 30, this.scene);
+    pop.particleTexture = new BABYLON.Texture("data:image/png;base64,..."); // Placeholder
+    pop.emitter = this.mesh.position.clone();
+    
+    // Set up particle properties
+    pop.minEmitBox = new BABYLON.Vector3(-0.1, -0.1, -0.1);
+    pop.maxEmitBox = new BABYLON.Vector3(0.1, 0.1, 0.1);
+    pop.color1 = new BABYLON.Color4(1, 0, 0, 1);
+    pop.color2 = new BABYLON.Color4(0.8, 0, 0, 1);
+    pop.minSize = 0.05;
+    pop.maxSize = 0.15;
+    pop.minLifeTime = 0.2;
+    pop.maxLifeTime = 0.4;
+    pop.emitRate = 100;
+    pop.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+    pop.gravity = new BABYLON.Vector3(0, 5, 0);
+    
+    // Create pop flash
+    const flash = new BABYLON.HighlightLayer("popFlash", this.scene);
+    flash.addMesh(this.mesh, new BABYLON.Color3(1, 0, 0));
+    
+    // Start effects
+    pop.start();
+    
+    // Clean up after effects finish
+    setTimeout(() => {
+      pop.dispose();
+      flash.dispose();
+    }, 400);
+  }
   
   // Handle getting hit by projectile
   onHit(tower, projectile) {
@@ -281,32 +477,58 @@ class Bloon {
       // Shield blocks the hit
       this.abilities.shield = false;
       this.material.diffuseColor = new BABYLON.Color3(1, 0, 0);
+      this.createShieldBreakEffect();
+      this.eventEmitter.emit('bloonShieldBroken', { bloon: this });
       return false;
     }
     
     if (this.abilities.phase) {
       // Phase lets projectiles pass through
+      this.eventEmitter.emit('bloonPhased', { bloon: this });
       return false;
     }
     
     if (this.abilities.rubber) {
       // Bounce projectile back toward tower
+      this.eventEmitter.emit('bloonBounced', { bloon: this, tower });
       return { action: 'bounce', target: tower };
     }
     
     if (this.abilities.mirror && !this.hasMirrored) {
       // Trigger mirror effect
       this.hasMirrored = true;
+      this.createMirrorClones();
+      this.eventEmitter.emit('bloonMirrored', { 
+        bloon: this, 
+        position: this.mesh.position.clone() 
+      });
       return { action: 'mirror', position: this.mesh.position.clone() };
     }
     
     if (this.abilities.split && !this.hasSplit) {
       // Trigger split effect
       this.hasSplit = true;
+      this.eventEmitter.emit('bloonSplit', { 
+        bloon: this, 
+        position: this.mesh.position.clone() 
+      });
       return { action: 'split', position: this.mesh.position.clone() };
     }
     
     // Normal hit
+  this.createPopEffect();
+  
+  // Handle death explosion if active
+  if (this.deathExplosion) {
+    this.createDeathExplosion();
+  }
+
+    // Normal hit
+    this.eventEmitter.emit('bloonDestroyed', { 
+      bloon: this,
+      position: this.mesh.position.clone(),
+      wasClone: this.isClone
+    });
     return true;
   }
 }

@@ -7,7 +7,7 @@ import UpgradeManager from '../managers/UpgradeManager';
 
 // Import game classes and generators
 import Bloon from '../game/Bloon';
-import { createLevel } from '../game/levelGenerator';
+import LevelGenerator from '../game/LevelGenerator';
 
 // Import UI components
 import StatusEffectsHUD from './ui/StatusEffectsHUD';
@@ -31,6 +31,8 @@ const abilities = [
 
 const BloonsRevenge = () => {
   const canvasRef = useRef(null);
+  const eventEmitterRef = useRef(new GameEvents());
+  const levelGeneratorRef = useRef(null);
   const sceneRef = useRef(null);
   const activeLevel = useRef(null);
   const bloons = useRef([]);
@@ -87,31 +89,6 @@ const BloonsRevenge = () => {
       });
     }
   }, [gameState.currentLevel]);
-
-  // Handle level completion
-  const handleLevelComplete = useCallback(() => {
-    setGameState(prev => {
-      // Check for perfect clear
-      const isPerfect = prev.bloonsEscaped === prev.bloonsRequired;
-      
-      if (isPerfect) {
-        return {
-          ...prev,
-          gameStatus: 'perfectClear',
-          score: prev.score + (prev.currentLevel * 100),
-          currentLevel: prev.currentLevel + 1,
-          upgradeChoices: UpgradeManager.getUpgradeChoices(prev.currentLevel)
-        };
-      } else {
-        return {
-          ...prev,
-          gameStatus: 'levelComplete',
-          score: prev.score + (prev.currentLevel * 100),
-          currentLevel: prev.currentLevel + 1
-        };
-      }
-    });
-  }, []);
 
   // Handle upgrade selection
   const handleUpgradeSelect = useCallback((upgrade) => {
@@ -177,7 +154,7 @@ const BloonsRevenge = () => {
       bloons.current = [];
       
       // Create new level
-      activeLevel.current = createLevel(sceneRef.current, { level: 1 });
+      activeLevel.current = levelGeneratorRef.current.createLevel(sceneRef.current, { level: 1 });
     }
   }, []);
 
@@ -185,14 +162,151 @@ const BloonsRevenge = () => {
     selectedAbilityRef.current = abilityName;
   }, []);
 
+  // Add these handlers before the useEffect
+
+const handleBloonDestroyed = useCallback((data) => {
+  // Remove from active bloons
+  bloons.current = bloons.current.filter(b => b !== data.bloon);
+
+  // Update game state
+  setGameState(prev => {
+    // Check if we can still complete the level
+    const remainingNeeded = prev.bloonsRequired - prev.bloonsEscaped;
+    if (prev.totalBloons < remainingNeeded) {
+      return {
+        ...prev,
+        gameStatus: 'gameOver'
+      };
+    }
+
+    // Add notification for special cases
+    if (data.wasClone) {
+      return {
+        ...prev,
+        statusEffects: {
+          ...prev.statusEffects,
+          notifications: [
+            ...(prev.statusEffects.notifications || []),
+            {
+              id: Date.now(),
+              message: 'Clone destroyed!',
+              timestamp: Date.now()
+            }
+          ]
+        }
+      };
+    }
+
+    return prev;
+  });
+}, []);
+
+const handleSpecialEffects = useCallback((eventType, data) => {
+  switch(eventType) {
+    case 'bloonMirrored':
+      // Create mirror clones
+      const angles = [Math.PI/4, -Math.PI/4];
+      angles.forEach(angle => {
+        const mirrorBloon = new Bloon(
+          sceneRef.current,
+          data.position,
+          eventEmitterRef.current,
+          activeLevel.current.pathPoints,
+          { isClone: true }
+        );
+        mirrorBloon.mesh.position.addInPlace(
+          new BABYLON.Vector3(Math.cos(angle), 0, Math.sin(angle)).scale(0.5)
+        );
+        bloons.current.push(mirrorBloon);
+      });
+      break;
+
+    case 'bloonSplit':
+      // Create split bloons
+      for (let i = 0; i < 2; i++) {
+        const splitBloon = new Bloon(
+          sceneRef.current,
+          data.position,
+          eventEmitterRef.current,
+          activeLevel.current.pathPoints,
+          { isClone: true, scale: 0.6 }
+        );
+        splitBloon.mesh.position.addInPlace(
+          new BABYLON.Vector3(i === 0 ? 0.5 : -0.5, 0, 0)
+        );
+        splitBloon.speed *= 1.2; // Make split bloons slightly faster
+        bloons.current.push(splitBloon);
+      }
+      break;
+
+    case 'bloonShieldBroken':
+    case 'bloonBounced':
+    case 'bloonPhased':
+      // Add notification for special events
+      setGameState(prev => ({
+        ...prev,
+        statusEffects: {
+          ...prev.statusEffects,
+          notifications: [
+            ...(prev.statusEffects.notifications || []),
+            {
+              id: Date.now(),
+              message: `${eventType.replace('bloon', '')}!`,
+              timestamp: Date.now()
+            }
+          ]
+        }
+      }));
+      break;
+  }
+}, []);
+
   // Babylon.js game setup
   useEffect(() => {
     if (!canvasRef.current) return;
+
+    const eventEmitter = eventEmitterRef.current;
+
+    // Setup event listeners
+    eventEmitter.on('bloonDestroyed', handleBloonDestroyed);
+    eventEmitter.on('bloonEscaped', handleBloonEscape);
+    
+    // Special effect handlers
+    eventEmitter.on('bloonMirrored', (data) => handleSpecialEffects('bloonMirrored', data));
+    eventEmitter.on('bloonSplit', (data) => handleSpecialEffects('bloonSplit', data));
+    eventEmitter.on('bloonShieldBroken', (data) => handleSpecialEffects('bloonShieldBroken', data));
+    eventEmitter.on('bloonBounced', (data) => handleSpecialEffects('bloonBounced', data));
+    eventEmitter.on('bloonPhased', (data) => handleSpecialEffects('bloonPhased', data));
+
+    eventEmitter.on('levelComplete', (data) => {
+      const isPerfect = data.bloonsEscaped === data.bloonsRequired;
+      
+      setGameState(prev => {
+        if (isPerfect) {
+          return {
+            ...prev,
+            gameStatus: 'perfectClear',
+            score: prev.score + (prev.currentLevel * 100),
+            currentLevel: prev.currentLevel + 1,
+            upgradeChoices: UpgradeManager.getUpgradeChoices(prev.currentLevel)
+          };
+        } else {
+          return {
+            ...prev,
+            gameStatus: 'levelComplete',
+            score: prev.score + (prev.currentLevel * 100),
+            currentLevel: prev.currentLevel + 1
+          };
+        }
+      });
+    });
 
     // Initialize Babylon.js engine and scene
     const engine = new BABYLON.Engine(canvasRef.current, true);
     const scene = new BABYLON.Scene(engine);
     sceneRef.current = scene;
+
+    levelGeneratorRef.current = new LevelGenerator(scene, eventEmitter);
     
     // Camera setup
     const camera = new BABYLON.ArcRotateCamera(
@@ -215,7 +329,7 @@ const BloonsRevenge = () => {
     );
 
     // Create first level
-    activeLevel.current = createLevel(scene, {
+    activeLevel.current = levelGeneratorRef.current.createLevel(scene, {
       level: gameState.currentLevel
     });
     
@@ -233,8 +347,9 @@ const BloonsRevenge = () => {
       
       // Create bloon
       const bloon = new Bloon(
-        scene, 
-        startPosition, 
+        scene,
+        startPosition,
+        eventEmitterRef.current, 
         activeLevel.current.pathPoints,
         GameStateManager.getAllModifiers(gameState)
       );
@@ -318,10 +433,40 @@ const BloonsRevenge = () => {
     };
     
     // Handle bloon escape
-    const handleBloonEscape = (bloon) => {
+    const handleBloonEscape = (data) => {
+      const bloon = data.bloon;
       // Remove from active bloons
       bloons.current = bloons.current.filter(b => b !== bloon);
       
+       // Update game state
+  setGameState(prev => {
+    const newBloonsEscaped = prev.bloonsEscaped + 1;
+    
+    // If we've reached the required number of bloons
+    if (newBloonsEscaped >= prev.bloonsRequired) {
+      // Emit level complete event
+      eventEmitterRef.current.emit('levelComplete', {
+        bloonsEscaped: newBloonsEscaped,
+        bloonsRequired: prev.bloonsRequired,
+        currentLevel: prev.currentLevel
+      });
+    }
+    
+    // Check game over
+    if (prev.totalBloons < prev.bloonsRequired - newBloonsEscaped) {
+      return {
+        ...prev,
+        bloonsEscaped: newBloonsEscaped,
+        gameStatus: 'gameOver'
+      };
+    }
+    
+    return {
+      ...prev,
+      bloonsEscaped: newBloonsEscaped
+    };
+  });
+
       // Create explosion effect for bloon detonation upgrade
       const hasDetonation = gameState.upgradeState?.permanentModifiers?.bloonDetonation;
       if (hasDetonation) {
@@ -412,6 +557,8 @@ const BloonsRevenge = () => {
           }
         });
       }
+
+      bloon.escape();
       
       // Dispose bloon
       bloon.dispose();
@@ -464,10 +611,18 @@ const BloonsRevenge = () => {
         
         // Check if bloon reached the end
         if (bloon.pathIndex >= activeLevel.current.pathPoints.length - 1) {
-          handleBloonEscape(bloon);
+          bloon.escape();
         }
       });
       
+      // Update towers
+        if (gameState.gameStatus === 'playing' && activeLevel.current && activeLevel.current.towers) {
+            activeLevel.current.towers.forEach(tower => {
+            // Pass the bloons array to each tower
+            tower.update(bloons.current, currentTime);
+            });
+        }
+
       // Update level theme effects
       if (activeLevel.current?.themeModifiers?.update) {
         activeLevel.current.themeModifiers.update(scene, engine.getDeltaTime(), currentTime);
@@ -504,6 +659,15 @@ const BloonsRevenge = () => {
     
     // Cleanup
     return () => {
+      eventEmitter.off('bloonDestroyed', handleBloonDestroyed);
+      eventEmitter.off('bloonEscaped', handleBloonEscape);
+      eventEmitter.off('bloonMirrored');
+      eventEmitter.off('bloonSplit');
+      eventEmitter.off('bloonShieldBroken');
+      eventEmitter.off('bloonBounced');
+      eventEmitter.off('bloonPhased');
+      eventEmitter.off('levelComplete');
+      
       window.removeEventListener('resize', handleResize);
       engine.dispose();
       
