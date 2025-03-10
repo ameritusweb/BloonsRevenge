@@ -241,14 +241,16 @@ class Bloon {
   
   update() {
     if (!this.isDead && this.pathIndex < this.pathPoints.length - 1) {
-      const start = this.pathPoints[this.pathIndex];
-      const end = this.pathPoints[this.pathIndex + 1];
-      const direction = end.subtract(start);
+      const nextPoint = this.pathPoints[this.pathIndex + 1];
+      
+      // Calculate direction from current position to next point
+      const direction = nextPoint.subtract(this.mesh.position);
       direction.normalize();
       
       this.mesh.position.addInPlace(direction.scale(this.speed));
       
-      if (BABYLON.Vector3.Distance(this.mesh.position, end) < 0.1) {
+      // Check if we've reached the next point
+      if (BABYLON.Vector3.Distance(this.mesh.position, nextPoint) < 0.1) {
         this.pathIndex++;
       }
     }
@@ -503,7 +505,9 @@ class Bloon {
       this.createMirrorClones();
       this.eventEmitter.emit('bloonMirrored', { 
         bloon: this, 
-        position: this.mesh.position.clone() 
+        position: this.mesh.position.clone(),
+        pathIndex: this.pathIndex,
+        pathPoints: this.pathPoints 
       });
       return { action: 'mirror', position: this.mesh.position.clone() };
     }
@@ -513,7 +517,9 @@ class Bloon {
       this.hasSplit = true;
       this.eventEmitter.emit('bloonSplit', { 
         bloon: this, 
-        position: this.mesh.position.clone() 
+        position: this.mesh.position.clone(),
+        pathIndex: this.pathIndex,
+        pathPoints: this.pathPoints
       });
       return { action: 'split', position: this.mesh.position.clone() };
     }

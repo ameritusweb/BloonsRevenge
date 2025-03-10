@@ -47,8 +47,10 @@ const BloonsRevenge = () => {
     score: 0,
     gameStatus: 'playing',
     currentLevel: 1,
+    bloonsActive: 0,
     bloonsRequired: 3,
     bloonsEscaped: 0,
+    bloonsDestroyed: 0,
     upgradeState: {
       activeUpgrades: [],
       tempModifiers: {},
@@ -63,11 +65,15 @@ const BloonsRevenge = () => {
   // Reset level function
   const resetLevel = useCallback(() => {
     setGameState(prev => {
-      const nextLevel = prev.currentLevel;
+      const nextLevel = prev.currentLevel + 1;
       const newState = {
         ...prev,
+        totalBloons: 25,
+        currentLevel: nextLevel,
         bloonsEscaped: 0,
-        bloonsRequired: Math.min(Math.floor(2 + nextLevel * 1.5), prev.totalBloons),
+        bloonsActive: 0,
+        bloonsDestroyed: 0,
+        bloonsRequired: Math.min(Math.floor(2 + nextLevel * 1.5), 25),
         gameStatus: 'playing'
       };
       
@@ -82,14 +88,7 @@ const BloonsRevenge = () => {
     // Clean up existing bloons
     bloons.current.forEach(bloon => bloon.dispose());
     bloons.current = [];
-    
-    // Create new level
-    if (sceneRef.current) {
-      activeLevel.current = createLevel(sceneRef.current, {
-        level: gameState.currentLevel
-      });
-    }
-  }, [gameState.currentLevel]);
+  }, []);
 
   // Handle upgrade selection
   const handleUpgradeSelect = useCallback((upgrade) => {
@@ -114,15 +113,6 @@ const BloonsRevenge = () => {
     });
   }, []);
 
-  // Handle game over
-  const handleGameOver = useCallback(() => {
-    setGameState(prev => ({
-      ...prev,
-      score: prev.score + (prev.totalBloons * 50), // Bonus for remaining bloons
-      gameStatus: 'gameOver'
-    }));
-  }, []);
-
   // Handle restart game
   const handleRestart = useCallback(() => {
     setGameState({
@@ -130,8 +120,10 @@ const BloonsRevenge = () => {
       score: 0,
       gameStatus: 'playing',
       currentLevel: 1,
+      bloonsActive: 0,
       bloonsRequired: 3,
       bloonsEscaped: 0,
+      bloonsDestroyed: 0,
       upgradeState: {
         activeUpgrades: [],
         tempModifiers: {},
@@ -173,9 +165,11 @@ const handleBloonDestroyed = useCallback((data) => {
   setGameState(prev => {
     // Check if we can still complete the level
     const remainingNeeded = prev.bloonsRequired - prev.bloonsEscaped;
-    if (prev.totalBloons < remainingNeeded) {
+    if (prev.totalBloons + prev.bloonsActive < remainingNeeded) {
       return {
         ...prev,
+        bloonsActive: prev.bloonsActive - 1,
+        score: prev.score + (prev.totalBloons * 50), // Bonus for remaining bloons
         gameStatus: 'gameOver'
       };
     }
@@ -198,7 +192,11 @@ const handleBloonDestroyed = useCallback((data) => {
       };
     }
 
-    return prev;
+    return {
+      ...prev,
+      bloonsDestroyed: prev.bloonsDestroyed + 1,
+      bloonsActive: prev.bloonsActive - 1
+    };
   });
 }, []);
 
@@ -210,14 +208,29 @@ const handleSpecialEffects = useCallback((eventType, data) => {
       angles.forEach(angle => {
         const mirrorBloon = new Bloon(
           sceneRef.current,
-          data.position,
+          data.position.clone(),  // Clone the position
           eventEmitterRef.current,
-          activeLevel.current.pathPoints,
+          data.pathPoints,        // Use the original bloon's path points
           { isClone: true }
         );
-        mirrorBloon.mesh.position.addInPlace(
-          new BABYLON.Vector3(Math.cos(angle), 0, Math.sin(angle)).scale(0.5)
+        
+        // IMPORTANT: Set pathIndex before adding offset
+        mirrorBloon.pathIndex = data.pathIndex;
+        
+        // Calculate offset perpendicular to path
+        const currentPoint = mirrorBloon.pathPoints[mirrorBloon.pathIndex];
+        const nextPoint = mirrorBloon.pathPoints[Math.min(mirrorBloon.pathIndex + 1, mirrorBloon.pathPoints.length - 1)];
+        
+        const pathDirection = nextPoint.subtract(currentPoint);
+        pathDirection.normalize();
+        
+        const perpDirection = new BABYLON.Vector3(
+          -pathDirection.z,
+          0,
+          pathDirection.x
         );
+        
+        mirrorBloon.mesh.position.addInPlace(perpDirection.scale(angle === Math.PI/4 ? 0.5 : -0.5));
         bloons.current.push(mirrorBloon);
       });
       break;
@@ -227,17 +240,40 @@ const handleSpecialEffects = useCallback((eventType, data) => {
       for (let i = 0; i < 2; i++) {
         const splitBloon = new Bloon(
           sceneRef.current,
-          data.position,
+          data.position.clone(),  // Clone the position
           eventEmitterRef.current,
-          activeLevel.current.pathPoints,
-          { isClone: true, scale: 0.6 }
+          data.pathPoints,        // Use the original bloon's path points
+          { 
+            isClone: true,
+            scale: 0.6 
+          }
         );
-        splitBloon.mesh.position.addInPlace(
-          new BABYLON.Vector3(i === 0 ? 0.5 : -0.5, 0, 0)
+        
+        // IMPORTANT: Set pathIndex before adding offset
+        splitBloon.pathIndex = data.pathIndex;
+        
+        // Calculate offset perpendicular to path
+        const currentPoint = splitBloon.pathPoints[splitBloon.pathIndex];
+        const nextPoint = splitBloon.pathPoints[Math.min(splitBloon.pathIndex + 1, splitBloon.pathPoints.length - 1)];
+        
+        const pathDirection = nextPoint.subtract(currentPoint);
+        pathDirection.normalize();
+        
+        const perpDirection = new BABYLON.Vector3(
+          -pathDirection.z,
+          0,
+          pathDirection.x
         );
+        
+        splitBloon.mesh.position.addInPlace(perpDirection.scale(i === 0 ? 0.5 : -0.5));
         splitBloon.speed *= 1.2; // Make split bloons slightly faster
         bloons.current.push(splitBloon);
       }
+
+      setGameState(prev => ({
+        ...prev,
+        bloonsActive: prev.bloonsActive + 2
+      }));
       break;
 
     case 'bloonShieldBroken':
@@ -284,22 +320,25 @@ const handleSpecialEffects = useCallback((eventType, data) => {
           eventEmitterRef.current.emit('levelComplete', {
             bloonsEscaped: newBloonsEscaped,
             bloonsRequired: prev.bloonsRequired,
-            currentLevel: prev.currentLevel
+            bloonsDestroyed: prev.bloonsDestroyed
           });
         }
         
         // Check game over
-        if (prev.totalBloons < prev.bloonsRequired - newBloonsEscaped) {
+        if (prev.totalBloons + prev.bloonsActive < prev.bloonsRequired - newBloonsEscaped) {
           return {
             ...prev,
             bloonsEscaped: newBloonsEscaped,
+            bloonsActive: prev.bloonsActive - 1,
+            score: prev.score + (prev.totalBloons * 50), // Bonus for remaining bloons
             gameStatus: 'gameOver'
           };
         }
         
         return {
           ...prev,
-          bloonsEscaped: newBloonsEscaped
+          bloonsEscaped: newBloonsEscaped,
+          bloonsActive: prev.bloonsActive - 1
         };
       });
     
@@ -401,34 +440,24 @@ const handleSpecialEffects = useCallback((eventType, data) => {
           
           // Update game state
           setGameState(prev => {
-            const newBloonsEscaped = prev.bloonsEscaped + 1;
-            
-            // Check level completion
-            if (newBloonsEscaped >= prev.bloonsRequired) {
-              return {
-                ...prev,
-                bloonsEscaped: newBloonsEscaped,
-                gameStatus: 'levelComplete'
-              };
-            }
-            
+            const newBloonsEscaped = prev.bloonsEscaped;
+
             // Check game over
-            if (prev.totalBloons < prev.bloonsRequired - newBloonsEscaped) {
+            if (prev.totalBloons + prev.bloonsActive < prev.bloonsRequired - newBloonsEscaped) {
               return {
                 ...prev,
-                bloonsEscaped: newBloonsEscaped,
+                score: prev.score + (prev.totalBloons * 50), // Bonus for remaining bloons
                 gameStatus: 'gameOver'
               };
             }
             
             // Continue playing
             return {
-              ...prev,
-              bloonsEscaped: newBloonsEscaped
+              ...prev
             };
           });
         };
-        
+
     // Setup event listeners
     eventEmitter.on('bloonDestroyed', handleBloonDestroyed);
     eventEmitter.on('bloonEscaped', handleBloonEscape);
@@ -441,7 +470,7 @@ const handleSpecialEffects = useCallback((eventType, data) => {
     eventEmitter.on('bloonPhased', (data) => handleSpecialEffects('bloonPhased', data));
 
     eventEmitter.on('levelComplete', (data) => {
-      const isPerfect = data.bloonsEscaped === data.bloonsRequired;
+      const isPerfect = data.bloonsEscaped === data.bloonsRequired && data.bloonsDestroyed === 0;
       
       setGameState(prev => {
         if (isPerfect) {
@@ -449,15 +478,13 @@ const handleSpecialEffects = useCallback((eventType, data) => {
             ...prev,
             gameStatus: 'perfectClear',
             score: prev.score + (prev.currentLevel * 100),
-            currentLevel: prev.currentLevel + 1,
             upgradeChoices: UpgradeManager.getUpgradeChoices(prev.currentLevel)
           };
         } else {
           return {
             ...prev,
             gameStatus: 'levelComplete',
-            score: prev.score + (prev.currentLevel * 100),
-            currentLevel: prev.currentLevel + 1
+            score: prev.score + (prev.currentLevel * 100)
           };
         }
       });
@@ -590,7 +617,8 @@ const handleSpecialEffects = useCallback((eventType, data) => {
       // Reduce total bloons count
       setGameState(prev => ({
         ...prev,
-        totalBloons: prev.totalBloons - 1
+        totalBloons: prev.totalBloons - 1,
+        bloonsActive: prev.bloonsActive + 1
       }));
     };
     
@@ -690,7 +718,7 @@ const handleSpecialEffects = useCallback((eventType, data) => {
       {/* Game Stats HUD */}
       <div className="absolute top-4 left-4 bg-black bg-opacity-50 text-white p-4 rounded">
         <div className="mb-2 text-xl font-bold">Level {gameState.currentLevel}</div>
-        <div className="mb-2">Bloons Left: {gameState.totalBloons}</div>
+        <div className="mb-2">Bloons Left: {gameState.totalBloons + gameState.bloonsActive}</div>
         <div className="mb-2">Escaped: {gameState.bloonsEscaped} / {gameState.bloonsRequired}</div>
         <div>Score: {gameState.score}</div>
         {activeLevel.current?.theme && (
@@ -740,8 +768,8 @@ const handleSpecialEffects = useCallback((eventType, data) => {
       {/* Level Complete Overlay */}
       {gameState.gameStatus === 'levelComplete' && (
         <LevelCompleteScreen
-          level={gameState.currentLevel - 1}
-          bloonsRemaining={gameState.totalBloons}
+          level={gameState.currentLevel}
+          bloonsRemaining={gameState.totalBloons + gameState.bloonsActive}
           score={gameState.score}
           onContinue={resetLevel}
         />
@@ -751,8 +779,8 @@ const handleSpecialEffects = useCallback((eventType, data) => {
       {gameState.gameStatus === 'gameOver' && (
         <GameOverScreen
           finalScore={gameState.score}
-          levelsCompleted={gameState.currentLevel - 1}
-          bloonsRemaining={gameState.totalBloons}
+          levelsCompleted={gameState.currentLevel}
+          bloonsRemaining={gameState.totalBloons + gameState.bloonsActive}
           onRestart={handleRestart}
         />
       )}

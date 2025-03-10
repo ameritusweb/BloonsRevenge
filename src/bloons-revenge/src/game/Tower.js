@@ -361,15 +361,6 @@ class Tower {
               target: bloon,
               type: 'blocked'
             });
-          } else if (hitResult && hitResult.action === 'bounce') {
-            // Handle rubber bounce back
-            this.handleRubberBounce(bloon, hitResult.target);
-          } else if (hitResult && hitResult.action === 'mirror') {
-            // Handle mirror effect
-            this.handleMirrorEffect(bloon, hitResult.position);
-          } else if (hitResult && hitResult.action === 'split') {
-            // Handle split effect
-            this.handleSplitEffect(bloon, hitResult.position);
           }
           
           projectile.dispose();
