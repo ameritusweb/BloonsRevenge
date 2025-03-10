@@ -10,7 +10,7 @@ class Bloon {
     // Create mesh
     this.mesh = BABYLON.MeshBuilder.CreateSphere(
       "bloon",
-      { diameter: 0.8 },
+      { diameter: 1.6 },
       scene
     );
     this.mesh.position = startPosition.clone();
@@ -23,7 +23,7 @@ class Bloon {
     this.mesh.material = this.material;
     
     // Movement properties
-    this.baseSpeed = 0.05;
+    this.baseSpeed = 0.03;
     this.speed = this.baseSpeed;
     this.pathIndex = 0;
     this.isDead = false;
@@ -105,7 +105,7 @@ class Bloon {
         
       case 'speed':
         // Base speed boost
-        this.speed = this.baseSpeed * 3;
+        this.speed = this.baseSpeed * 5;
         
         setTimeout(() => {
           this.abilities.speed = false;

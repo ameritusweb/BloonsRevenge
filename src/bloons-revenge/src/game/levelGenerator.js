@@ -33,7 +33,7 @@ class LevelGenerator {
       startZ = -14,
       endX = 14,
       endZ = 14,
-      height = 0.5,
+      height = 0.8,
       minStep = 4,
       maxStep = 8,
       complexity = 5
@@ -294,7 +294,7 @@ class LevelGenerator {
     dustSystem.maxSize = 0.5;
     dustSystem.minLifeTime = 2;
     dustSystem.maxLifeTime = 5;
-    dustSystem.emitRate = 50;
+    dustSystem.emitRate = 1;
     dustSystem.start();
     
     // Return theme modifiers
@@ -349,7 +349,7 @@ fogSystem.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
     fogSystem.alpha = 0.1;
     fogSystem.minLifeTime = 4;
     fogSystem.maxLifeTime = 8;
-    fogSystem.emitRate = 10;
+    fogSystem.emitRate = 1;
     fogSystem.start();
     
     // Return theme modifiers
@@ -402,7 +402,7 @@ rainSystem.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
     rainSystem.maxSize = 0.3;
     rainSystem.minLifeTime = 0.5;
     rainSystem.maxLifeTime = 1;
-    rainSystem.emitRate = 2000;
+    rainSystem.emitRate = 1;
     rainSystem.start();
     
     // Return theme modifiers
