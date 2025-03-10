@@ -334,7 +334,9 @@ class Bloon {
     this.eventEmitter.emit('bloonMirrored', {
       bloon: this,
       position: this.mesh.position.clone(),
-      angles: angles
+      angles: angles,
+      pathIndex: this.pathIndex,
+      pathPoints: this.pathPoints
     });
   }
   
