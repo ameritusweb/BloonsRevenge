@@ -307,61 +307,87 @@ class Tower {
     projectile.material = projectileMaterial;
     
     projectile.position = this.turret.position.clone();
+
+    // Calculate initial direction to bloon
     const direction = bloon.mesh.position.subtract(this.turret.position);
     direction.normalize();
 
-    const animation = new BABYLON.Animation(
-      "projectileAnim",
-      "position",
-      60,
-      BABYLON.Animation.ANIMATIONTYPE_VECTOR3,
-      BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
-    );
+    // Store projectile speed
+    const projectileSpeed = 0.5; // Adjust this value to make projectiles faster/slower
 
-    const keyFrames = [];
-    keyFrames.push({
-      frame: 0,
-      value: projectile.position.clone()
-    });
-    keyFrames.push({
-      frame: 30,
-      value: bloon.mesh.position.clone()
-    });
+    // Register before render to update projectile position and check collisions
+    const observer = this.scene.onBeforeRenderObservable.add(() => {
+      // Move projectile
+      projectile.position.addInPlace(direction.scale(projectileSpeed));
 
-    animation.setKeys(keyFrames);
-    projectile.animations = [animation];
+      // Check if projectile has gone too far
+      const distanceFromTower = BABYLON.Vector3.Distance(
+        this.turret.position,
+        projectile.position
+      );
 
-    this.scene.beginAnimation(projectile, 0, 30, false, 1, () => {
-      // Handle hit result
-      const hitResult = bloon.onHit(this, projectile);
-      
-      if (hitResult === true) {
-        // Normal hit
-        this.eventEmitter.emit('towerHit', {
-          tower: this,
-          target: bloon,
-          type: 'destroy'
-        });
-      } else if (hitResult === false) {
-        // Hit blocked
-        this.eventEmitter.emit('towerHit', {
-          tower: this,
-          target: bloon,
-          type: 'blocked'
-        });
-      } else if (hitResult && hitResult.action === 'bounce') {
-        // Handle rubber bounce back
-        this.handleRubberBounce(bloon, hitResult.target);
-      } else if (hitResult && hitResult.action === 'mirror') {
-        // Handle mirror effect
-        this.handleMirrorEffect(bloon, hitResult.position);
-      } else if (hitResult && hitResult.action === 'split') {
-        // Handle split effect
-        this.handleSplitEffect(bloon, hitResult.position);
+      if (distanceFromTower > this.range * 1.5) {
+        // Projectile missed or went too far
+        this.scene.onBeforeRenderObservable.remove(observer);
+        projectile.dispose();
+        return;
       }
-      
-      projectile.dispose();
+
+      // Check for collision with bloon
+      if (bloon.mesh) { // Make sure bloon still exists
+        const hitDistance = BABYLON.Vector3.Distance(
+          projectile.position,
+          bloon.mesh.position
+        );
+
+        if (hitDistance < 0.5) { // Adjust this value for hit detection radius
+          // Remove the observer before handling the hit
+          this.scene.onBeforeRenderObservable.remove(observer);
+
+          // Handle hit result
+          const hitResult = bloon.onHit(this, projectile);
+          
+          if (hitResult === true) {
+            // Normal hit
+            this.eventEmitter.emit('towerHit', {
+              tower: this,
+              target: bloon,
+              type: 'destroy'
+            });
+          } else if (hitResult === false) {
+            // Hit blocked
+            this.eventEmitter.emit('towerHit', {
+              tower: this,
+              target: bloon,
+              type: 'blocked'
+            });
+          } else if (hitResult && hitResult.action === 'bounce') {
+            // Handle rubber bounce back
+            this.handleRubberBounce(bloon, hitResult.target);
+          } else if (hitResult && hitResult.action === 'mirror') {
+            // Handle mirror effect
+            this.handleMirrorEffect(bloon, hitResult.position);
+          } else if (hitResult && hitResult.action === 'split') {
+            // Handle split effect
+            this.handleSplitEffect(bloon, hitResult.position);
+          }
+          
+          projectile.dispose();
+        }
+      } else {
+        // Bloon no longer exists
+        this.scene.onBeforeRenderObservable.remove(observer);
+        projectile.dispose();
+      }
     });
+
+    // Cleanup if projectile still exists after some time
+    setTimeout(() => {
+      if (projectile) {
+        this.scene.onBeforeRenderObservable.remove(observer);
+        projectile.dispose();
+      }
+    }, 5000); // 5 second safety cleanup
   }
   
   shootSniper(bloon) {
@@ -629,7 +655,7 @@ class Tower {
           range: bloon.upgradeEffects?.towerJamming?.areaOfEffect || 3,
           duration: bloon.upgradeEffects?.towerJamming?.disableDuration || 5
         });
-        
+
         const jammingRange = bloon.upgradeEffects?.towerJamming?.areaOfEffect || 3;
         const jammingDuration = bloon.upgradeEffects?.towerJamming?.disableDuration || 5;
         

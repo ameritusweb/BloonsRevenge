@@ -284,7 +284,7 @@ class LevelGenerator {
     
     // Create dust particle system
     const dustSystem = new BABYLON.ParticleSystem("dust", 1000, this.scene);
-    dustSystem.particleTexture = new BABYLON.Texture("data:image/png;base64,..."); // Placeholder
+    dustSystem.particleTexture = new BABYLON.Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="); // Placeholder
     dustSystem.emitter = new BABYLON.Vector3(0, 1, 0);
     dustSystem.minEmitBox = new BABYLON.Vector3(-15, 0, -15);
     dustSystem.maxEmitBox = new BABYLON.Vector3(15, 5, 15);
@@ -332,14 +332,21 @@ class LevelGenerator {
     
     // Create fog particle system
     const fogSystem = new BABYLON.ParticleSystem("fog", 5000, this.scene);
-    fogSystem.particleTexture = new BABYLON.Texture("data:image/png;base64,..."); // Placeholder
+    const texture = new BABYLON.DynamicTexture("particleTexture", { width:4, height:4 }, this.scene);
+const context = texture.getContext();
+context.fillStyle = "white";
+context.fillRect(0, 0, 4, 4);
+texture.update();
+fogSystem.particleTexture = texture;
+fogSystem.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
     fogSystem.emitter = new BABYLON.Vector3(0, 0, 0);
     fogSystem.minEmitBox = new BABYLON.Vector3(-20, 0, -20);
     fogSystem.maxEmitBox = new BABYLON.Vector3(20, 3, 20);
-    fogSystem.color1 = new BABYLON.Color4(0.9, 0.9, 0.9, 0.1);
-    fogSystem.color2 = new BABYLON.Color4(0.8, 0.8, 0.8, 0.2);
-    fogSystem.minSize = 1;
-    fogSystem.maxSize = 3;
+    fogSystem.color1 = new BABYLON.Color4(0.9, 0.9, 0.9, 0.05);
+    fogSystem.color2 = new BABYLON.Color4(0.8, 0.8, 0.8, 0.1);
+    fogSystem.minSize = 0.5;
+    fogSystem.maxSize = 1;
+    fogSystem.alpha = 0.1;
     fogSystem.minLifeTime = 4;
     fogSystem.maxLifeTime = 8;
     fogSystem.emitRate = 10;
@@ -354,6 +361,7 @@ class LevelGenerator {
       name: "Fog",
       cleanup: () => {
         fogSystem.dispose();
+        texture.dispose();
         this.scene.fogMode = BABYLON.Scene.FOGMODE_NONE;
       }
     };
@@ -378,7 +386,13 @@ class LevelGenerator {
     
     // Create rain particle system
     const rainSystem = new BABYLON.ParticleSystem("rain", 5000, this.scene);
-    rainSystem.particleTexture = new BABYLON.Texture("data:image/png;base64,..."); // Placeholder
+    const texture = new BABYLON.DynamicTexture("particleTexture", { width:4, height:4 }, this.scene);
+const context = texture.getContext();
+context.fillStyle = "white";
+context.fillRect(0, 0, 4, 4);
+texture.update();
+rainSystem.particleTexture = texture;
+rainSystem.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
     rainSystem.emitter = new BABYLON.Vector3(0, 15, 0);
     rainSystem.minEmitBox = new BABYLON.Vector3(-20, 0, -20);
     rainSystem.maxEmitBox = new BABYLON.Vector3(20, 0, 20);
@@ -418,6 +432,7 @@ class LevelGenerator {
       },
       cleanup: () => {
         rainSystem.dispose();
+        texture.dispose();
         this.scene.lights.forEach(light => {
           light.intensity = originalLightIntensity;
         });

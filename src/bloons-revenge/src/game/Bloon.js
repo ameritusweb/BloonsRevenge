@@ -26,6 +26,7 @@ class Bloon {
     this.baseSpeed = 0.05;
     this.speed = this.baseSpeed;
     this.pathIndex = 0;
+    this.isDead = false;
     
     // Ability states
     this.abilities = {
@@ -239,7 +240,7 @@ class Bloon {
   }
   
   update() {
-    if (this.pathIndex < this.pathPoints.length - 1) {
+    if (!this.isDead && this.pathIndex < this.pathPoints.length - 1) {
       const start = this.pathPoints[this.pathIndex];
       const end = this.pathPoints[this.pathIndex + 1];
       const direction = end.subtract(start);
@@ -262,6 +263,8 @@ class Bloon {
   }
   
   dispose() {
+    this.isDead = true;
+
     this.eventEmitter.emit('bloonDisposed', { 
       bloon: this,
       position: this.mesh.position?.clone(),
@@ -302,7 +305,7 @@ class Bloon {
     angles.forEach(angle => {
       // Create mirror split particle effect
       const splitEffect = new BABYLON.ParticleSystem("mirrorSplit", 50, this.scene);
-      splitEffect.particleTexture = new BABYLON.Texture("data:image/png;base64,..."); // Placeholder
+      splitEffect.particleTexture = new BABYLON.Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="); // Placeholder
       splitEffect.emitter = this.mesh.position.clone();
       
       // Set up particle properties
@@ -351,7 +354,7 @@ class Bloon {
   
     // Create particle system for explosion
     const particles = new BABYLON.ParticleSystem("explosionParticles", 200, this.scene);
-    particles.particleTexture = new BABYLON.Texture("data:image/png;base64,..."); // Placeholder
+    particles.particleTexture = new BABYLON.Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="); // Placeholder
     particles.emitter = this.mesh.position;
     particles.minEmitBox = new BABYLON.Vector3(-0.5, -0.5, -0.5);
     particles.maxEmitBox = new BABYLON.Vector3(0.5, 0.5, 0.5);
@@ -409,7 +412,7 @@ class Bloon {
   createShieldBreakEffect() {
     // Create shield break particles
     const shieldBreak = new BABYLON.ParticleSystem("shieldBreak", 50, this.scene);
-    shieldBreak.particleTexture = new BABYLON.Texture("data:image/png;base64,..."); // Placeholder
+    shieldBreak.particleTexture = new BABYLON.Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="); // Placeholder
     shieldBreak.emitter = this.mesh.position.clone();
     
     // Set up particle properties
@@ -441,7 +444,7 @@ class Bloon {
   createPopEffect() {
     // Create pop particles
     const pop = new BABYLON.ParticleSystem("pop", 30, this.scene);
-    pop.particleTexture = new BABYLON.Texture("data:image/png;base64,..."); // Placeholder
+    pop.particleTexture = new BABYLON.Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="); // Placeholder
     pop.emitter = this.mesh.position.clone();
     
     // Set up particle properties
@@ -470,7 +473,7 @@ class Bloon {
       flash.dispose();
     }, 400);
   }
-  
+
   // Handle getting hit by projectile
   onHit(tower, projectile) {
     if (this.abilities.shield) {
@@ -522,6 +525,8 @@ class Bloon {
   if (this.deathExplosion) {
     this.createDeathExplosion();
   }
+
+  this.dispose();
 
     // Normal hit
     this.eventEmitter.emit('bloonDestroyed', { 

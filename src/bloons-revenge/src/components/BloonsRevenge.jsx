@@ -8,6 +8,7 @@ import UpgradeManager from '../managers/UpgradeManager';
 // Import game classes and generators
 import Bloon from '../game/Bloon';
 import LevelGenerator from '../game/LevelGenerator';
+import GameEvents from '../game/GameEvents';
 
 // Import UI components
 import StatusEffectsHUD from './ui/StatusEffectsHUD';
@@ -267,6 +268,167 @@ const handleSpecialEffects = useCallback((eventType, data) => {
 
     const eventEmitter = eventEmitterRef.current;
 
+        // Handle bloon escape
+        const handleBloonEscape = (data) => {
+          const bloon = data.bloon;
+          // Remove from active bloons
+          bloons.current = bloons.current.filter(b => b !== bloon);
+          
+           // Update game state
+      setGameState(prev => {
+        const newBloonsEscaped = prev.bloonsEscaped + 1;
+        
+        // If we've reached the required number of bloons
+        if (newBloonsEscaped >= prev.bloonsRequired) {
+          // Emit level complete event
+          eventEmitterRef.current.emit('levelComplete', {
+            bloonsEscaped: newBloonsEscaped,
+            bloonsRequired: prev.bloonsRequired,
+            currentLevel: prev.currentLevel
+          });
+        }
+        
+        // Check game over
+        if (prev.totalBloons < prev.bloonsRequired - newBloonsEscaped) {
+          return {
+            ...prev,
+            bloonsEscaped: newBloonsEscaped,
+            gameStatus: 'gameOver'
+          };
+        }
+        
+        return {
+          ...prev,
+          bloonsEscaped: newBloonsEscaped
+        };
+      });
+    
+          // Create explosion effect for bloon detonation upgrade
+          const hasDetonation = gameState.upgradeState?.permanentModifiers?.bloonDetonation;
+          if (hasDetonation) {
+            const radius = hasDetonation.effect.escapeExplosion.radius || 4;
+            const disableDuration = hasDetonation.effect.escapeExplosion.disableDuration || 3;
+            
+            // Create explosion visual effect
+            const explosion = BABYLON.MeshBuilder.CreateSphere(
+              "explosion",
+              { diameter: 1 },
+              scene
+            );
+            explosion.position = bloon.mesh.position.clone();
+            explosion.position.y = 0.5;
+            
+            const explosionMaterial = new BABYLON.StandardMaterial("explosionMat", scene);
+            explosionMaterial.diffuseColor = new BABYLON.Color3(1, 0.5, 0);
+            explosionMaterial.emissiveColor = new BABYLON.Color3(1, 0.3, 0);
+            explosion.material = explosionMaterial;
+            
+            // Animate explosion
+            const frameRate = 30;
+            const explosionAnimation = new BABYLON.Animation(
+              "explosionAnim",
+              "scaling", 
+              frameRate, 
+              BABYLON.Animation.ANIMATIONTYPE_VECTOR3, 
+              BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+            );
+            
+            const explosionKeyframes = [];
+            explosionKeyframes.push({
+              frame: 0,
+              value: new BABYLON.Vector3(0.1, 0.1, 0.1)
+            });
+            explosionKeyframes.push({
+              frame: 10,
+              value: new BABYLON.Vector3(radius, radius, radius)
+            });
+            explosionKeyframes.push({
+              frame: frameRate,
+              value: new BABYLON.Vector3(radius, radius, radius)
+            });
+            
+            explosionAnimation.setKeys(explosionKeyframes);
+            
+            // Animate material alpha
+            const alphaAnimation = new BABYLON.Animation(
+              "alphaAnim",
+              "material.alpha", 
+              frameRate, 
+              BABYLON.Animation.ANIMATIONTYPE_FLOAT, 
+              BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+            );
+            
+            const alphaKeyframes = [];
+            alphaKeyframes.push({
+              frame: 0,
+              value: 0.8
+            });
+            alphaKeyframes.push({
+              frame: 10,
+              value: 0.6
+            });
+            alphaKeyframes.push({
+              frame: frameRate,
+              value: 0
+            });
+            
+            alphaAnimation.setKeys(alphaKeyframes);
+            
+            explosion.animations = [explosionAnimation, alphaAnimation];
+            
+            // Play animation
+            scene.beginAnimation(explosion, 0, frameRate, false, 1, () => {
+              explosion.dispose();
+            });
+            
+            // Disable towers in range
+            activeLevel.current.towers.forEach(tower => {
+              const distance = BABYLON.Vector3.Distance(
+                tower.base.position, 
+                bloon.mesh.position
+              );
+              
+              if (distance <= radius) {
+                tower.disableTower(disableDuration * 1000);
+              }
+            });
+          }
+    
+          bloon.escape();
+          
+          // Dispose bloon
+          bloon.dispose();
+          
+          // Update game state
+          setGameState(prev => {
+            const newBloonsEscaped = prev.bloonsEscaped + 1;
+            
+            // Check level completion
+            if (newBloonsEscaped >= prev.bloonsRequired) {
+              return {
+                ...prev,
+                bloonsEscaped: newBloonsEscaped,
+                gameStatus: 'levelComplete'
+              };
+            }
+            
+            // Check game over
+            if (prev.totalBloons < prev.bloonsRequired - newBloonsEscaped) {
+              return {
+                ...prev,
+                bloonsEscaped: newBloonsEscaped,
+                gameStatus: 'gameOver'
+              };
+            }
+            
+            // Continue playing
+            return {
+              ...prev,
+              bloonsEscaped: newBloonsEscaped
+            };
+          });
+        };
+        
     // Setup event listeners
     eventEmitter.on('bloonDestroyed', handleBloonDestroyed);
     eventEmitter.on('bloonEscaped', handleBloonEscape);
@@ -430,167 +592,6 @@ const handleSpecialEffects = useCallback((eventType, data) => {
         ...prev,
         totalBloons: prev.totalBloons - 1
       }));
-    };
-    
-    // Handle bloon escape
-    const handleBloonEscape = (data) => {
-      const bloon = data.bloon;
-      // Remove from active bloons
-      bloons.current = bloons.current.filter(b => b !== bloon);
-      
-       // Update game state
-  setGameState(prev => {
-    const newBloonsEscaped = prev.bloonsEscaped + 1;
-    
-    // If we've reached the required number of bloons
-    if (newBloonsEscaped >= prev.bloonsRequired) {
-      // Emit level complete event
-      eventEmitterRef.current.emit('levelComplete', {
-        bloonsEscaped: newBloonsEscaped,
-        bloonsRequired: prev.bloonsRequired,
-        currentLevel: prev.currentLevel
-      });
-    }
-    
-    // Check game over
-    if (prev.totalBloons < prev.bloonsRequired - newBloonsEscaped) {
-      return {
-        ...prev,
-        bloonsEscaped: newBloonsEscaped,
-        gameStatus: 'gameOver'
-      };
-    }
-    
-    return {
-      ...prev,
-      bloonsEscaped: newBloonsEscaped
-    };
-  });
-
-      // Create explosion effect for bloon detonation upgrade
-      const hasDetonation = gameState.upgradeState?.permanentModifiers?.bloonDetonation;
-      if (hasDetonation) {
-        const radius = hasDetonation.effect.escapeExplosion.radius || 4;
-        const disableDuration = hasDetonation.effect.escapeExplosion.disableDuration || 3;
-        
-        // Create explosion visual effect
-        const explosion = BABYLON.MeshBuilder.CreateSphere(
-          "explosion",
-          { diameter: 1 },
-          scene
-        );
-        explosion.position = bloon.mesh.position.clone();
-        explosion.position.y = 0.5;
-        
-        const explosionMaterial = new BABYLON.StandardMaterial("explosionMat", scene);
-        explosionMaterial.diffuseColor = new BABYLON.Color3(1, 0.5, 0);
-        explosionMaterial.emissiveColor = new BABYLON.Color3(1, 0.3, 0);
-        explosion.material = explosionMaterial;
-        
-        // Animate explosion
-        const frameRate = 30;
-        const explosionAnimation = new BABYLON.Animation(
-          "explosionAnim",
-          "scaling", 
-          frameRate, 
-          BABYLON.Animation.ANIMATIONTYPE_VECTOR3, 
-          BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
-        );
-        
-        const explosionKeyframes = [];
-        explosionKeyframes.push({
-          frame: 0,
-          value: new BABYLON.Vector3(0.1, 0.1, 0.1)
-        });
-        explosionKeyframes.push({
-          frame: 10,
-          value: new BABYLON.Vector3(radius, radius, radius)
-        });
-        explosionKeyframes.push({
-          frame: frameRate,
-          value: new BABYLON.Vector3(radius, radius, radius)
-        });
-        
-        explosionAnimation.setKeys(explosionKeyframes);
-        
-        // Animate material alpha
-        const alphaAnimation = new BABYLON.Animation(
-          "alphaAnim",
-          "material.alpha", 
-          frameRate, 
-          BABYLON.Animation.ANIMATIONTYPE_FLOAT, 
-          BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
-        );
-        
-        const alphaKeyframes = [];
-        alphaKeyframes.push({
-          frame: 0,
-          value: 0.8
-        });
-        alphaKeyframes.push({
-          frame: 10,
-          value: 0.6
-        });
-        alphaKeyframes.push({
-          frame: frameRate,
-          value: 0
-        });
-        
-        alphaAnimation.setKeys(alphaKeyframes);
-        
-        explosion.animations = [explosionAnimation, alphaAnimation];
-        
-        // Play animation
-        scene.beginAnimation(explosion, 0, frameRate, false, 1, () => {
-          explosion.dispose();
-        });
-        
-        // Disable towers in range
-        activeLevel.current.towers.forEach(tower => {
-          const distance = BABYLON.Vector3.Distance(
-            tower.base.position, 
-            bloon.mesh.position
-          );
-          
-          if (distance <= radius) {
-            tower.disableTower(disableDuration * 1000);
-          }
-        });
-      }
-
-      bloon.escape();
-      
-      // Dispose bloon
-      bloon.dispose();
-      
-      // Update game state
-      setGameState(prev => {
-        const newBloonsEscaped = prev.bloonsEscaped + 1;
-        
-        // Check level completion
-        if (newBloonsEscaped >= prev.bloonsRequired) {
-          return {
-            ...prev,
-            bloonsEscaped: newBloonsEscaped,
-            gameStatus: 'levelComplete'
-          };
-        }
-        
-        // Check game over
-        if (prev.totalBloons < prev.bloonsRequired - newBloonsEscaped) {
-          return {
-            ...prev,
-            bloonsEscaped: newBloonsEscaped,
-            gameStatus: 'gameOver'
-          };
-        }
-        
-        // Continue playing
-        return {
-          ...prev,
-          bloonsEscaped: newBloonsEscaped
-        };
-      });
     };
     
     // Main render loop

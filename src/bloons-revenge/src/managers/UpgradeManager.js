@@ -24,17 +24,63 @@ class UpgradeManager {
   static applyBloonUpgrades(bloon, modifiers) {
     if (!modifiers) return;
 
-    Object.values(modifiers).forEach(modifier => {
-      // Apply speed multiplier
-      if (modifier.effect?.bloonSpeedMultiplier) {
-        bloon.speed *= modifier.effect.bloonSpeedMultiplier;
-      }
-      
-      // Apply auto-camo
-      if (modifier.effect?.autoCamoDuration) {
-        bloon.activateAbility('camo');
-      }
-    });
+    // Handle temporary modifiers
+    if (modifiers.tempModifiers) {
+      Object.values(modifiers.tempModifiers).forEach(modifier => {
+        // Speed multiplier
+        if (modifier.effect?.bloonSpeedMultiplier) {
+          bloon.speed *= modifier.effect.bloonSpeedMultiplier;
+        }
+        
+        // Auto-camo
+        if (modifier.effect?.autoCamoDuration) {
+          bloon.activateAbility('camo');
+        }
+
+        // Start with shield
+        if (modifier.effect?.startWithShield) {
+          bloon.abilities.shield = true;
+          bloon.material.diffuseColor = new BABYLON.Color3(0, 1, 1);
+        }
+      });
+    }
+
+    // Handle permanent modifiers
+    if (modifiers.permanentModifiers) {
+      Object.values(modifiers.permanentModifiers).forEach(modifier => {
+        // Death explosion
+        if (modifier.id === 'bloonDetonation') {
+          bloon.deathExplosion = true;
+          bloon.deathExplosionRadius = modifier.effect?.explosionRadius || 3;
+          bloon.deathExplosionDisableDuration = modifier.effect?.disableDuration || 2000;
+        }
+
+        // Permanent invisibility
+        if (modifier.effect?.permanentInvisibility) {
+          bloon.abilities.camo = true;
+          bloon.material.alpha = 0.3;
+        }
+
+        // Ghost mode (untargetable while phased)
+        if (modifier.id === 'ghostMode') {
+          bloon.ghostMode = true;
+        }
+
+        // Apply any ability-specific modifiers
+        if (modifier.effect?.abilityModifier) {
+          Object.entries(modifier.effect.abilityModifier).forEach(([ability, mods]) => {
+            // Store ability modifiers for later use
+            if (!bloon.abilityModifiers) bloon.abilityModifiers = {};
+            if (!bloon.abilityModifiers[ability]) bloon.abilityModifiers[ability] = {};
+            
+            Object.assign(bloon.abilityModifiers[ability], mods);
+          });
+        }
+      });
+    }
+
+    // Store the original modifiers for reference
+    bloon.modifiers = modifiers;
   }
 
   // Get modified cooldown for an ability
