@@ -35,13 +35,13 @@ const upgradeData = {
       {
         id: 'pathShortcut',
         name: 'Path Shortcut',
-        description: 'Bloons move 20% faster for the next 3 levels',
+        description: 'Bloons move 75% faster for the next 3 levels',
         tier: 'early',
         type: 'temporary',
         duration: 3,
         icon: '🔄',
         effect: {
-          bloonSpeedMultiplier: 1.2
+          bloonSpeedMultiplier: 1.75
         }
       }
     ],

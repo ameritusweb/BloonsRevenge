@@ -2,10 +2,11 @@ import * as BABYLON from '@babylonjs/core';
 import UpgradeManager from '../managers/UpgradeManager';
 
 class Bloon {
-  constructor(scene, startPosition, eventEmitter, pathPoints, modifiers = {}) {
+  constructor(scene, startPosition, eventEmitter, pathPoints, modifiers = {}, data = {}) {
     this.scene = scene;
     this.eventEmitter = eventEmitter;
     this.pathPoints = pathPoints;
+    this.data = data;
     
     // Create mesh
     this.mesh = BABYLON.MeshBuilder.CreateSphere(
@@ -17,7 +18,7 @@ class Bloon {
     
     // Create material
     this.material = new BABYLON.StandardMaterial("bloonMat", scene);
-    this.material.diffuseColor = new BABYLON.Color3(1, 0, 0);
+    this.material.diffuseColor = new BABYLON.Color3(1, 0.5, 0);
     this.material.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
     this.material.specularPower = 16;
     this.mesh.material = this.material;
@@ -27,6 +28,8 @@ class Bloon {
     this.speed = this.baseSpeed;
     this.pathIndex = 0;
     this.isDead = false;
+    
+    this.hits = 0;
     
     // Ability states
     this.abilities = {
@@ -52,6 +55,60 @@ class Bloon {
     if (modifiers) {
       UpgradeManager.applyBloonUpgrades(this, modifiers);
     }
+
+    this.gameStartTime = data.gameStartTime;
+    this.bloonStartTime = Date.now();
+    this.invulnerabilityDuration = data.initialInvulnerabilityDuration;
+
+    if (this.isInvulnerable()) {
+      this.startInvulnerabilityEffect();
+    }
+  }
+
+  isInvulnerable() {
+    if (!this.bloonStartTime) return false;
+    return Date.now() - this.bloonStartTime < this.invulnerabilityDuration;
+  }
+
+  startInvulnerabilityEffect() {
+    // Create a glowing shield effect
+    const glow = new BABYLON.HighlightLayer("invulnerableGlow", this.scene);
+    glow.addMesh(this.mesh, new BABYLON.Color3(0, 1, 0)); // Green glow
+
+    // Pulse animation for the mesh
+    const pulseAnimation = new BABYLON.Animation(
+      "pulseAnimation",
+      "scaling",
+      30,
+      BABYLON.Animation.ANIMATIONTYPE_VECTOR3,
+      BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE,
+      true
+    );
+
+    const keys = [];
+    keys.push({
+      frame: 0,
+      value: new BABYLON.Vector3(1, 1, 1)
+    });
+    keys.push({
+      frame: 15,
+      value: new BABYLON.Vector3(1.1, 1.1, 1.1)
+    });
+    keys.push({
+      frame: 30,
+      value: new BABYLON.Vector3(1, 1, 1)
+    });
+
+    pulseAnimation.setKeys(keys);
+    this.mesh.animations = [pulseAnimation];
+    this.scene.beginAnimation(this.mesh, 0, 30, true);
+
+    // Remove effect after invulnerability period
+    setTimeout(() => {
+      glow.dispose();
+      this.scene.stopAnimation(this.mesh);
+      this.mesh.scaling = new BABYLON.Vector3(1, 1, 1);
+    }, this.invulnerabilityDuration);
   }
   
   activateAbility(abilityName, modifiers = {}) {
@@ -478,8 +535,36 @@ class Bloon {
     }, 400);
   }
 
+  createHitEffect() {
+    // Create particle effect for first hit
+    const hitEffect = new BABYLON.ParticleSystem("hit", 20, this.scene);
+    hitEffect.particleTexture = new BABYLON.Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==");
+    hitEffect.emitter = this.mesh.position.clone();
+    hitEffect.minEmitBox = new BABYLON.Vector3(-0.1, -0.1, -0.1);
+    hitEffect.maxEmitBox = new BABYLON.Vector3(0.1, 0.1, 0.1);
+    hitEffect.color1 = new BABYLON.Color4(1, 1, 0, 1); // Yellow
+    hitEffect.color2 = new BABYLON.Color4(1, 0, 0, 1); // Red
+    hitEffect.minSize = 0.1;
+    hitEffect.maxSize = 0.2;
+    hitEffect.minLifeTime = 0.2;
+    hitEffect.maxLifeTime = 0.4;
+    hitEffect.emitRate = 100;
+    hitEffect.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+    
+    hitEffect.start();
+    
+    setTimeout(() => {
+      hitEffect.dispose();
+    }, 500);
+  }
+  
   // Handle getting hit by projectile
   onHit(tower, projectile) {
+
+    if (this.isInvulnerable()) {
+      return false;
+    }
+
     if (this.abilities.shield) {
       // Shield blocks the hit
       this.abilities.shield = false;
@@ -526,23 +611,35 @@ class Bloon {
       return { action: 'split', position: this.mesh.position.clone() };
     }
     
-    // Normal hit
-  this.createPopEffect();
-  
-  // Handle death explosion if active
-  if (this.deathExplosion) {
-    this.createDeathExplosion();
-  }
-
-  this.dispose();
-
-    // Normal hit
-    this.eventEmitter.emit('bloonDestroyed', { 
-      bloon: this,
-      position: this.mesh.position.clone(),
-      wasClone: this.isClone
-    });
-    return true;
+     // Handle two-hit system
+     this.hits++;
+    
+     if (this.hits === 1) {
+       // First hit - turn red
+       this.material.diffuseColor = new BABYLON.Color3(1, 0, 0);
+       
+       // Create hit effect
+       this.createHitEffect();
+       
+       return false; // Don't pop yet
+     } else {
+       // Second hit - pop the bloon
+       this.createPopEffect();
+       
+       // Handle death explosion if active
+       if (this.deathExplosion) {
+         this.createDeathExplosion();
+       }
+ 
+       this.dispose();
+       
+       this.eventEmitter.emit('bloonDestroyed', { 
+         bloon: this,
+         position: this.mesh.position.clone(),
+         wasClone: this.isClone
+       });
+       return true;
+     }
   }
 }
 

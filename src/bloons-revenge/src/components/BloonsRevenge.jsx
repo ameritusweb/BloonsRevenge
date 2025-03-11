@@ -51,6 +51,8 @@ const BloonsRevenge = () => {
     bloonsRequired: 3,
     bloonsEscaped: 0,
     bloonsDestroyed: 0,
+    gameStartTime: Date.now(), // Add this to track when game starts
+    initialInvulnerabilityDuration: 5000, // 5 seconds in milliseconds
     upgradeState: {
       activeUpgrades: [],
       tempModifiers: {},
@@ -73,6 +75,7 @@ const BloonsRevenge = () => {
         bloonsEscaped: 0,
         bloonsActive: 0,
         bloonsDestroyed: 0,
+        gameStartTime: Date.now,
         bloonsRequired: Math.min(Math.floor(2 + nextLevel * 1.5), 25),
         gameStatus: 'playing'
       };
@@ -124,6 +127,7 @@ const BloonsRevenge = () => {
       bloonsRequired: 3,
       bloonsEscaped: 0,
       bloonsDestroyed: 0,
+      gameStartTime: Date.now,
       upgradeState: {
         activeUpgrades: [],
         tempModifiers: {},
@@ -304,6 +308,8 @@ const handleSpecialEffects = useCallback((eventType, data) => {
 
     const eventEmitter = eventEmitterRef.current;
 
+    eventEmitter.removeAllListeners();
+
         // Handle bloon escape
         const handleBloonEscape = (data) => {
           const bloon = data.bloon;
@@ -317,11 +323,28 @@ const handleSpecialEffects = useCallback((eventType, data) => {
         // If we've reached the required number of bloons
         if (newBloonsEscaped >= prev.bloonsRequired) {
           // Emit level complete event
-          eventEmitterRef.current.emit('levelComplete', {
+          const completeData = {
             bloonsEscaped: newBloonsEscaped,
             bloonsRequired: prev.bloonsRequired,
             bloonsDestroyed: prev.bloonsDestroyed
-          });
+          };
+
+          const isPerfect = completeData.bloonsEscaped >= completeData.bloonsRequired && completeData.bloonsDestroyed === 0;
+      
+          if (isPerfect) {
+            return {
+              ...prev,
+              gameStatus: 'perfectClear',
+              score: prev.score + (prev.currentLevel * 100),
+              upgradeChoices: UpgradeManager.getUpgradeChoices(prev.currentLevel)
+            };
+          } else {
+            return {
+              ...prev,
+              gameStatus: 'levelComplete',
+              score: prev.score + (prev.currentLevel * 100)
+            };
+          }
         }
         
         // Check game over
@@ -469,34 +492,13 @@ const handleSpecialEffects = useCallback((eventType, data) => {
     eventEmitter.on('bloonBounced', (data) => handleSpecialEffects('bloonBounced', data));
     eventEmitter.on('bloonPhased', (data) => handleSpecialEffects('bloonPhased', data));
 
-    eventEmitter.on('levelComplete', (data) => {
-      const isPerfect = data.bloonsEscaped === data.bloonsRequired && data.bloonsDestroyed === 0;
-      
-      setGameState(prev => {
-        if (isPerfect) {
-          return {
-            ...prev,
-            gameStatus: 'perfectClear',
-            score: prev.score + (prev.currentLevel * 100),
-            upgradeChoices: UpgradeManager.getUpgradeChoices(prev.currentLevel)
-          };
-        } else {
-          return {
-            ...prev,
-            gameStatus: 'levelComplete',
-            score: prev.score + (prev.currentLevel * 100)
-          };
-        }
-      });
-    });
-
     // Initialize Babylon.js engine and scene
     const engine = new BABYLON.Engine(canvasRef.current, true);
     const scene = new BABYLON.Scene(engine);
     sceneRef.current = scene;
 
     levelGeneratorRef.current = new LevelGenerator(scene, eventEmitter);
-    
+
     // Camera setup
     const camera = new BABYLON.ArcRotateCamera(
       "camera",
@@ -540,7 +542,9 @@ const handleSpecialEffects = useCallback((eventType, data) => {
         startPosition,
         eventEmitterRef.current, 
         activeLevel.current.pathPoints,
-        GameStateManager.getAllModifiers(gameState)
+        GameStateManager.getAllModifiers(gameState),
+        { gameStartTime: gameState.gameStartTime,
+          initialInvulnerabilityDuration: gameState.initialInvulnerabilityDuration }
       );
       
       // Apply theme modifiers
@@ -553,19 +557,14 @@ const handleSpecialEffects = useCallback((eventType, data) => {
       bloon.mesh.actionManager.registerAction(
         new BABYLON.ExecuteCodeAction(
           BABYLON.ActionManager.OnPickTrigger,
-          (evt) => {
+          (evt) => 
+            {
 
-            const wasEnabled = camera.inputs.attached.pointers.detachControl();
-            evt.skipNextObservers = true;
+              const wasEnabled = camera.inputs.attached.pointers.detachControl();
+              evt.skipNextObservers = true;
 
-            setTimeout(() => {
-                if (wasEnabled) {
-                  camera.inputs.attachInput(camera.inputs.attached.pointers);
-                }
-              }, 100);
+              const currentAbility = selectedAbilityRef.current;
 
-            const currentAbility = selectedAbilityRef.current;
-            if (!bloon.abilities[currentAbility]) {
                 // Apply the ability
                 bloon.activateAbility(currentAbility, GameStateManager.getAllModifiers(gameState));
                 
@@ -574,6 +573,8 @@ const handleSpecialEffects = useCallback((eventType, data) => {
                     abilityBarRef.current.triggerCooldown(currentAbility);
                 }
               
+              const allModifiers = GameStateManager.getAllModifiers(gameState);
+
               // Check for ability fusion effect from upgrades
               if (UpgradeManager.shouldTriggerAbilityFusion(allModifiers)) {
                 // Request available abilities from the AbilityBar component
@@ -607,7 +608,12 @@ const handleSpecialEffects = useCallback((eventType, data) => {
                 }
               }
             }
-          }
+
+            setTimeout(() => {
+              if (wasEnabled) {
+                camera.inputs.attachInput(camera.inputs.attached.pointers);
+              }
+            }, 100);
           }
       ));
       
@@ -695,7 +701,6 @@ const handleSpecialEffects = useCallback((eventType, data) => {
       eventEmitter.off('bloonShieldBroken');
       eventEmitter.off('bloonBounced');
       eventEmitter.off('bloonPhased');
-      eventEmitter.off('levelComplete');
       
       window.removeEventListener('resize', handleResize);
       engine.dispose();
