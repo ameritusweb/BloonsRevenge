@@ -333,6 +333,23 @@ class Tower {
         return;
       }
 
+       // Check if projectile entered any fire zones
+    const allBloons = this.scene.meshes.filter(mesh => 
+      mesh.name === "bloon"
+    ).map(mesh => mesh.metadata?.bloon).filter(Boolean);
+
+    for (const b of allBloons) {
+      if (b.isPointInFireZone(projectile.position)) {
+        // Create burn effect
+        b.createBurnEffect(projectile.position.clone());
+        
+        // Remove projectile
+        this.scene.onBeforeRenderObservable.remove(observer);
+        projectile.dispose();
+        return;
+      }
+    }
+
       // Check for collision with bloon
       if (bloon.mesh) { // Make sure bloon still exists
         const hitDistance = BABYLON.Vector3.Distance(

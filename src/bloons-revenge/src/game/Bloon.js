@@ -28,6 +28,7 @@ class Bloon {
     this.speed = this.baseSpeed;
     this.pathIndex = 0;
     this.isDead = false;
+    this.baseFireDuration = 4000; // 4 seconds base duration
     
     this.hits = 0;
     
@@ -63,6 +64,13 @@ class Bloon {
     if (this.isInvulnerable()) {
       this.startInvulnerabilityEffect();
     }
+  }
+
+  getModifiedDuration(baseDuration, abilityName) {
+    if (this.upgradeEffects?.burnoutMode && abilityName === 'fire') {
+      return baseDuration * 2; // Double duration with burnout mode
+    }
+    return baseDuration;
   }
 
   isInvulnerable() {
@@ -212,53 +220,88 @@ class Bloon {
         }, getModifiedDuration(2000));
         break;
         
-      case 'fire':
-        this.material.emissiveColor = new BABYLON.Color3(1, 0.3, 0);
-        this.fireTrail = [];
-        
-        // Fire particle system
-        const fireSystem = new BABYLON.ParticleSystem("fire", 100, this.scene);
-        // Set up particle system properties...
-        // For brevity, detailed particle setup is omitted
-        
-        // Start fire node creation
-        const createFireNode = () => {
-          const node = BABYLON.MeshBuilder.CreateSphere("fireNode", { diameter: 0.3 }, this.scene);
-          node.position = this.mesh.position.clone();
+        case 'fire':
+          this.material.emissiveColor = new BABYLON.Color3(1, 0.3, 0);
+          this.fireTrail = [];
           
-          const nodeMaterial = new BABYLON.StandardMaterial("fireNodeMat", this.scene);
-          nodeMaterial.emissiveColor = new BABYLON.Color3(1, 0.3, 0);
-          nodeMaterial.alpha = 0.6;
-          node.material = nodeMaterial;
+          // Create fire node periodically
+          const createFireNode = () => {
+            const node = BABYLON.MeshBuilder.CreateSphere("fireNode", { diameter: 0.3 }, this.scene);
+            node.position = this.mesh.position.clone();
+            
+            // Create invisible sphere for collision detection
+            const protectionRadius = 2; // 2 units radius for protection zone
+            const collisionSphere = BABYLON.MeshBuilder.CreateSphere(
+              "fireProtection",
+              { diameter: protectionRadius * 2 },
+              this.scene
+            );
+            collisionSphere.position = node.position.clone();
+            
+            // Make collision sphere invisible but keep it for intersection tests
+            const collisionMaterial = new BABYLON.StandardMaterial("collisionMat", this.scene);
+            collisionMaterial.alpha = 0;
+            collisionSphere.material = collisionMaterial;
+            collisionSphere.isPickable = false;
+            
+            // Create fire effect material
+            const nodeMaterial = new BABYLON.StandardMaterial("fireNodeMat", this.scene);
+            nodeMaterial.emissiveColor = new BABYLON.Color3(1, 0.3, 0);
+            nodeMaterial.alpha = 0.6;
+            node.material = nodeMaterial;
+            
+            // Create fire particle system
+            const fireEffect = new BABYLON.ParticleSystem("fireEffect", 50, this.scene);
+            fireEffect.particleTexture = new BABYLON.Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==");
+            fireEffect.emitter = node;
+            fireEffect.minEmitBox = new BABYLON.Vector3(-1, 0, -1);
+            fireEffect.maxEmitBox = new BABYLON.Vector3(1, 0.5, 1);
+            fireEffect.color1 = new BABYLON.Color4(1, 0.5, 0, 1);
+            fireEffect.color2 = new BABYLON.Color4(1, 0.2, 0, 1);
+            fireEffect.minSize = 0.2;
+            fireEffect.maxSize = 0.4;
+            fireEffect.minLifeTime = 0.2;
+            fireEffect.maxLifeTime = 0.4;
+            fireEffect.emitRate = 50;
+            fireEffect.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+            
+            fireEffect.start();
+            
+            const trailNode = {
+              mesh: node,
+              collisionSphere: collisionSphere,
+              effect: fireEffect,
+              material: nodeMaterial,
+              protectionRadius: protectionRadius
+            };
+            
+            this.fireTrail.push(trailNode);
+            
+            // Get modified duration
+            const duration = this.getModifiedDuration(3000, 'fire');
+            
+            setTimeout(() => {
+              const fadeOut = setInterval(() => {
+                nodeMaterial.alpha -= 0.05;
+                if (nodeMaterial.alpha <= 0) {
+                  clearInterval(fadeOut);
+                  fireEffect.dispose();
+                  node.dispose();
+                  collisionSphere.dispose();
+                  this.fireTrail = this.fireTrail.filter(t => t !== trailNode);
+                }
+              }, 50);
+            }, duration);
+          };
           
-          this.fireTrail.push(node);
-          
-          // Fade out and remove after time
-          const duration = modifiers?.permanentModifiers?.burnoutMode ? 6000 : 3000;
+          const trailInterval = setInterval(createFireNode, 200);
           
           setTimeout(() => {
-            const fadeOut = setInterval(() => {
-              nodeMaterial.alpha -= 0.05;
-              if (nodeMaterial.alpha <= 0) {
-                clearInterval(fadeOut);
-                node.dispose();
-                this.fireTrail = this.fireTrail.filter(n => n !== node);
-              }
-            }, 50);
-          }, duration);
-        };
-        
-        // Create fire nodes periodically
-        const trailInterval = setInterval(createFireNode, 200);
-        
-        setTimeout(() => {
-          this.abilities.fire = false;
-          this.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
-          clearInterval(trailInterval);
-          
-          // Let existing fire nodes stay until their timers run out
-        }, getModifiedDuration(4000));
-        break;
+            this.abilities.fire = false;
+            this.material.emissiveColor = new BABYLON.Color3(0, 0, 0);
+            clearInterval(trailInterval);
+          }, this.getModifiedDuration(this.baseFireDuration, 'fire'));
+          break;
         
       case 'mirror':
         this.material.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.8);
@@ -296,6 +339,39 @@ class Bloon {
     }
   }
   
+  isPointInFireZone(point) {
+    return this.fireTrail.some(trail => {
+      const distance = BABYLON.Vector3.Distance(
+        point,
+        trail.node.position
+      );
+      return distance <= trail.protectionRadius;
+    });
+  }
+
+  // Add method to create burn effect
+  createBurnEffect(position) {
+    const burnEffect = new BABYLON.ParticleSystem("burnEffect", 20, this.scene);
+    burnEffect.particleTexture = new BABYLON.Texture("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==");
+    burnEffect.emitter = position;
+    burnEffect.minEmitBox = new BABYLON.Vector3(-0.1, -0.1, -0.1);
+    burnEffect.maxEmitBox = new BABYLON.Vector3(0.1, 0.1, 0.1);
+    burnEffect.color1 = new BABYLON.Color4(1, 0.5, 0, 1);
+    burnEffect.color2 = new BABYLON.Color4(1, 0.2, 0, 1);
+    burnEffect.minSize = 0.1;
+    burnEffect.maxSize = 0.2;
+    burnEffect.minLifeTime = 0.1;
+    burnEffect.maxLifeTime = 0.2;
+    burnEffect.emitRate = 100;
+    burnEffect.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+    
+    burnEffect.start();
+    
+    setTimeout(() => {
+      burnEffect.dispose();
+    }, 200);
+  }
+
   update() {
     if (!this.isDead && this.pathIndex < this.pathPoints.length - 1) {
       const nextPoint = this.pathPoints[this.pathIndex + 1];
@@ -324,6 +400,21 @@ class Bloon {
   dispose() {
     this.isDead = true;
 
+    this.activeEffects.forEach(effect => {
+      if (effect && effect.dispose) {
+        effect.dispose();
+      }
+    });
+    
+    // Clean up fire trail
+    if (this.fireTrail) {
+      this.fireTrail.forEach(trail => {
+        if (trail.effect) trail.effect.dispose();
+        if (trail.mesh) trail.mesh.dispose();
+        if (trail.collisionSphere) trail.collisionSphere.dispose();
+      });
+    }
+
     this.eventEmitter.emit('bloonDisposed', { 
       bloon: this,
       position: this.mesh.position?.clone(),
@@ -341,7 +432,9 @@ class Bloon {
     });
     
     // Dispose mesh
-    this.mesh.dispose();
+    if (this.mesh) {
+      this.mesh.dispose();
+    }
   }
 
   escape() {
@@ -557,7 +650,7 @@ class Bloon {
       hitEffect.dispose();
     }, 500);
   }
-  
+
   // Handle getting hit by projectile
   onHit(tower, projectile) {
 
