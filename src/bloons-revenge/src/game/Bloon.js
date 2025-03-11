@@ -18,7 +18,7 @@ class Bloon {
     
     // Create material
     this.material = new BABYLON.StandardMaterial("bloonMat", scene);
-    this.material.diffuseColor = new BABYLON.Color3(1, 0.5, 0);
+    this.material.diffuseColor = new BABYLON.Color3(1, 1, 0);
     this.material.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
     this.material.specularPower = 16;
     this.mesh.material = this.material;
@@ -428,7 +428,9 @@ class Bloon {
     
     // Clean up fire trail
     this.fireTrail.forEach(node => {
-      node.dispose();
+      if (node && node.dispose) {
+        node.dispose();
+      }
     });
     
     // Dispose mesh

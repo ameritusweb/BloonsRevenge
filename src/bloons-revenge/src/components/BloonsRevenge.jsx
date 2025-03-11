@@ -30,7 +30,7 @@ const abilities = [
     { name: 'split', label: 'Splitter', cooldown: 10000 }
   ];
 
-const BloonsRevenge = () => {
+  const BloonsRevenge = ({ playerName, onReturnToMenu }) => {
   const canvasRef = useRef(null);
   const eventEmitterRef = useRef(new GameEvents());
   const levelGeneratorRef = useRef(null);
@@ -329,20 +329,22 @@ const handleSpecialEffects = useCallback((eventType, data) => {
             bloonsDestroyed: prev.bloonsDestroyed
           };
 
+          const remainingBloonsBonus = (prev.totalBloons + prev.bloonsActive) * 50;
+
           const isPerfect = completeData.bloonsEscaped >= completeData.bloonsRequired && completeData.bloonsDestroyed === 0;
       
           if (isPerfect) {
             return {
               ...prev,
               gameStatus: 'perfectClear',
-              score: prev.score + (prev.currentLevel * 100),
+              score: prev.score + remainingBloonsBonus + (prev.currentLevel * 100),
               upgradeChoices: UpgradeManager.getUpgradeChoices(prev.currentLevel)
             };
           } else {
             return {
               ...prev,
               gameStatus: 'levelComplete',
-              score: prev.score + (prev.currentLevel * 100)
+              score: prev.score + remainingBloonsBonus + (prev.currentLevel * 100)
             };
           }
         }
@@ -785,8 +787,10 @@ const handleSpecialEffects = useCallback((eventType, data) => {
         <GameOverScreen
           finalScore={gameState.score}
           levelsCompleted={gameState.currentLevel}
+          playerName={playerName}
           bloonsRemaining={gameState.totalBloons + gameState.bloonsActive}
           onRestart={handleRestart}
+          onReturnToMenu={onReturnToMenu}
         />
       )}
 
